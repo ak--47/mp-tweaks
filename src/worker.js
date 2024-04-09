@@ -23,7 +23,7 @@ const STORAGE_MODEL = {
 	verbose: true
 };
 
-/
+
 async function init() {
 	// await loadScripts();
 	// console.log("mp-tweaks: scripts loaded");
@@ -168,7 +168,7 @@ async function handleRequest(request) {
 }
 
 function echo(data) {
-	console.console.log('mp-tweaks: echoing data...', data);
+	console.log('mp-tweaks: echoing data...', data);
 	window.ALTERED_MIXPANEL_DATA = data;
 }
 
@@ -302,7 +302,7 @@ async function getUser() {
 		}
 	}
 	catch (err) {
-		log(err);
+		console.error('mp-tweaks: get user err', err);
 	}
 
 	return user;
