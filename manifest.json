@@ -1,0 +1,50 @@
+{
+	"name": "MP Tweaks!",
+	"version": "2.20",
+	"manifest_version": 3,
+	"description": "this is an extension (by AK) to add feature flags to Mixpanel",
+	"homepage_url": "https://mixpanel.com",
+	"icons": {
+		"128": "icons/icon128.png"
+	},
+	"default_locale": "en",
+	"permissions": [
+		"tabs",
+		"storage",
+		"scripting"
+	],
+	"host_permissions": [
+		"https://mixpanel.com/",
+		"https://*.mxpnl.com/",
+		"<all_urls>"
+	],
+	"web_accessible_resources": [
+		{
+			"resources": [
+				"src/tweaks/100x.js",
+				"src/tweaks/catchFetch.js",
+				"src/lib/mixpanel.min.js"				
+			],
+			"matches": [
+				"*://*.mxpnl.com/*",
+				"*://mixpanel.com/*"				
+			]
+		},
+		{
+			"resources": ["src/lib/eztrack.min.js"],
+			"matches": ["*://*/*"]
+		}
+	],
+	"background": {
+		"service_worker": "src/worker.js"
+	},
+	"action": {
+		"default_icon": "icons/icon128.png",
+		"default_title": "MP Tweaks",
+		"default_popup": "src/app.html"
+	},
+	"options_page": "src/app.html",
+	"content_security_policy": {
+		"extension_pages": "script-src 'self'; object-src 'self';"
+	}
+}

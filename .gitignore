@@ -1,0 +1,6 @@
+builds/*
+design/*
+.DS_Store
+.vscode/*
+scratch.mjs
+node_modules

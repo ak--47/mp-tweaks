@@ -1,0 +1,207 @@
+:root {
+    --main-bg-color: #f6f6f6;
+	--primary: rgb(120, 86, 255);
+	--secondary: #DF7800;
+	--text-color: #626266;
+	--third: #219464
+}
+
+body {
+    margin: 0px;
+    background-color: var(--main-bg-color);
+	
+}
+
+#app {
+    padding: 5px;
+    width: 500px;
+    background-color: var(--main-bg-color);
+    color: var(--text-color);
+    font-family: 'Helvetica Neue', 'Helvetica', 'Tahoma', 'Geneva', 'Arial', sans-serif;
+	height: 700px;
+}
+
+
+#loader {
+    position: fixed; /* Position fixed to cover the whole screen */
+    top: 0;
+    left: 0;
+    width: 100vw; /* Full viewport width */
+    height: 100vh; /* Full viewport height */
+    display: flex;
+    justify-content: center; /* Horizontally center */
+    align-items: center; /* Vertically center */
+    background: rgba(255, 255, 255, 0.8); /* Optional: semi-transparent background */
+}
+
+.lds-rolling circle {
+    stroke: var(--third); /* Your desired stroke color */
+}
+
+div#loader svg {
+    width: 300px; /* Adjust the size of the SVG as needed */
+    height: 300px; /* Adjust the size of the SVG as needed */
+}
+
+#apiResWrapper {
+	padding-top: 10px;
+}
+
+#orgLabel {
+	color: var(--secondary);
+}
+
+#orgLabel b {
+	color: var(--primary);
+}
+
+.section {
+	margin-bottom: 14px;
+}
+
+#info {
+    margin-top: -10px;
+}
+
+#persistentOptions {
+    
+}
+
+#removeAll {
+    color: var(--secondary);
+}
+
+
+.small {
+    margin: 0;
+    margin-bottom: 8px;
+    font-size: 10px;
+}
+
+h2 {
+    margin: 0;
+    margin-bottom: 1px;
+    margin-left: 10px;
+}
+
+h2:hover {
+    opacity: .75;
+    color: var(--primary);
+}
+
+h2.lower {
+    margin-top: 10px;
+}
+
+
+
+.toggle:focus {
+    outline: none;
+}
+
+.option {
+	display: flex;
+    align-items: center; /* This will vertically center the checkbox and label text */
+    justify-content: start; /* This will align the items to the start of the container */
+}
+
+/* Optional: to ensure the labels are properly aligned with the checkboxes */
+label {
+    display: flex;
+    align-items: center;
+    margin: 0;
+	padding-left: 5px;
+    cursor: pointer; /* Optional: changes the cursor to indicate the label is clickable */
+}
+
+
+
+.toggle {
+    margin-right: 10px; /* Adds space to the right of the toggle */
+}
+
+
+/* .option label {
+    padding-left: 5px;
+} */
+
+input:disabled {
+    opacity: .25;
+}
+
+h1 {
+    font-size: 2em;
+    text-align: center;
+}
+
+button {
+    margin: 2px;
+}
+
+#info {
+    text-align: center;
+}
+
+#footer {
+	color: var(--text-color);
+    margin-top: 28px;
+    display: inline;
+}
+
+#footer .byline {
+    text-align: right;
+    padding-right: 11px;
+    float: right;
+}
+
+#footer .addMore {
+    text-align: left;
+    padding-left: 11px;
+    float: left;
+}
+
+#footer .toggles {
+    float: left;
+}
+
+#footer .toggles p {
+    margin-bottom: 0px;
+    margin-top: 5px;
+}
+
+a {
+    color: var(--primary);
+    text-decoration: none;
+    opacity: .6;
+    font-weight: bold;
+}
+
+a:hover {
+    color: var(--secondary);
+    text-decoration: none;
+    opacity: 1;
+    font-size: 110%;
+}
+
+#quickly {
+    font-size: 10px;
+    font-weight: 400;
+    padding-left: 5px;
+    font-style: italic;
+}
+
+#rawData {
+    margin-left: 10px;
+    height: 500px;
+    width: 89%;
+	margin-top: 12px;
+}
+
+.error {
+    color: coral;
+    font-size: 16px;
+}
+
+.hidden {
+    display: none !important;
+}
