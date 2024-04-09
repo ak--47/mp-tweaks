@@ -12,6 +12,8 @@ body {
 	
 }
 
+
+
 #app {
     padding: 5px;
     width: 500px;
@@ -41,6 +43,10 @@ body {
 div#loader svg {
     width: 300px; /* Adjust the size of the SVG as needed */
     height: 300px; /* Adjust the size of the SVG as needed */
+}
+
+#EZTrackToken {
+	width: 239px;
 }
 
 #apiResWrapper {

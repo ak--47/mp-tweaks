@@ -295,8 +295,6 @@ function bindListeners() {
 
 	});
 
-
-
 	//GET CHART DATA
 	this.DOM.fetchChartData.addEventListener('click', () => {
 		console.log('mp-tweaks: catch-fetch');

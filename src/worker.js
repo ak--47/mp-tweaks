@@ -158,6 +158,7 @@ async function handleRequest(request) {
 		case 'stop-eztrack':
 			STORAGE.EZTrack.enabled = false;
 			result = false;
+			await setStorage(STORAGE);
 			await runScript(reload);
 			break;
 		default:
@@ -173,17 +174,17 @@ function echo(data) {
 }
 
 function ezTrackInit(token, opts = {}) {
-	if (Object.keys(opts).length === 0) opts = { verbose: true };
+	if (Object.keys(opts).length === 0) opts = { verbose: true, api_host: "https://express-proxy-lmozz6xkha-uc.a.run.app" };
 	let attempts = 0;
 
 	function tryInit() {
 		if (window.mpEZTrack) {
 			clearInterval(intervalId); // Clear the interval once mpEZTrack is found
-			mpEZTrack.init(token, opts); // Initialize mpEZTrack
+			mpEZTrack.init(token, opts, true); // Initialize mpEZTrack
 		} else {
 			attempts++;
 			console.log(`mp-tweaks: waiting for mpEZTrack ... attempt: ${attempts}`);
-			if (attempts > 10) {
+			if (attempts > 15) {
 				clearInterval(intervalId);
 				console.log('mp-tweaks: mpEZTrack not found');
 			}
@@ -191,7 +192,7 @@ function ezTrackInit(token, opts = {}) {
 		}
 	}
 
-	const intervalId = setInterval(tryInit, 500);
+	const intervalId = setInterval(tryInit, 1000);
 }
 
 function reload() {
@@ -199,8 +200,8 @@ function reload() {
 }
 
 async function startEzTrack(token) {
-	const library = await runScript("./src/tweaks/ezTrackWrapper.js");
-	const init = await runScript(ezTrackInit, [token], null);
+	const library = await runScript("./src/lib/eztrack.min.js", [], null, { world: "ISOLATED" });
+	const init = await runScript(ezTrackInit, [token], null, { world: "ISOLATED" });
 	return [library, init];
 }
 
@@ -284,7 +285,7 @@ async function getUser() {
 				if (user_email) user.email = user_email;
 				const foundOrg = Object.values(data.results.organizations).filter(o => o.name.includes(user_name))?.pop();
 				if (foundOrg) {
-					user.orgId = foundOrg.id;
+					user.orgId = foundOrg.id?.toString();
 					user.orgName = foundOrg.name;
 				}
 				if (!foundOrg) {
@@ -294,7 +295,7 @@ async function getUser() {
 						.filter(o => o.role === 'owner')
 						.filter(o => !ignoreProjects.includes(o.id))?.pop();
 					if (possibleOrg) {
-						user.orgId = possibleOrg;
+						user.orgId = possibleOrg?.id?.toString();
 						user.orgName = possibleOrg.name;
 					}
 				}
@@ -492,60 +493,6 @@ function haveSameShape(obj1, obj2) {
 	return true;
 }
 
-
-
-// async function analytics() {
-// 	// MIXPANEL
-// 	const MIXPANEL_CUSTOM_LIB_URL = "./lib/mixpanel.min.js";
-// 	(function (c, a) {
-// 		if (!a.__SV) {
-// 			var b = window; try { var d, m, j, k = b.location, f = k.hash; d = function (a, b) { return (m = a.match(RegExp(b + "=([^&]*)"))) ? m[1] : null; }; f && d(f, "state") && (j = JSON.parse(decodeURIComponent(d(f, "state"))), "mpeditor" === j.action && (b.sessionStorage.setItem("_mpcehash", f), history.replaceState(j.desiredHash || "", c.title, k.pathname + k.search))); } catch (n) { } var l, h; window.mixpanel = a; a._i = []; a.init = function (b, d, g) {
-// 				function c(b, i) {
-// 					var a = i.split("."); 2 == a.length && (b = b[a[0]], i = a[1]); b[i] = function () {
-// 						b.push([i].concat(Array.prototype.slice.call(arguments,
-// 							0)));
-// 					};
-// 				} var e = a; "undefined" !== typeof g ? e = a[g] = [] : g = "mixpanel"; e.people = e.people || []; e.toString = function (b) { var a = "mixpanel"; "mixpanel" !== g && (a += "." + g); b || (a += " (stub)"); return a; }; e.people.toString = function () { return e.toString(1) + ".people (stub)"; }; l = "disable time_event track track_pageview track_links track_forms track_with_groups add_group set_group remove_group register register_once alias unregister identify name_tag set_config reset opt_in_tracking opt_out_tracking has_opted_in_tracking has_opted_out_tracking clear_opt_in_out_tracking people.set people.set_once people.unset people.increment people.append people.union people.track_charge people.clear_charges people.delete_user people.remove".split(" ");
-// 				for (h = 0; h < l.length; h++)c(e, l[h]); var f = "set set_once union unset remove delete".split(" "); e.get_group = function () { function a(c) { b[c] = function () { call2_args = arguments; call2 = [c].concat(Array.prototype.slice.call(call2_args, 0)); e.push([d, call2]); }; } for (var b = {}, d = ["get_group"].concat(Array.prototype.slice.call(arguments, 0)), c = 0; c < f.length; c++)a(f[c]); return b; }; a._i.push([b, d, g]);
-// 			}; a.__SV = 1.2; b = c.createElement("script"); b.type = "text/javascript"; b.async = !0; b.src = "undefined" !== typeof MIXPANEL_CUSTOM_LIB_URL ?
-// 				MIXPANEL_CUSTOM_LIB_URL : "file:" === c.location.protocol && "https://cdn4.mxpnl.com/libs/mixpanel-2-latest.min.js".match(/^\/\//) ? "https://cdn4.mxpnl.com/libs/mixpanel-2-latest.min.js" : "https://cdn4.mxpnl.com/libs/mixpanel-2-latest.min.js"; d = c.getElementsByTagName("script")[0]; d.parentNode.insertBefore(b, d);
-// 		}
-// 	})(document, window.mixpanel || []);
-
-// 	return mixpanel.init("3e97f649a88698acc335a5d64a28ec72", {
-// 		persistence: 'localStorage',
-// 		api_host: "https://api.mixpanel.com",
-// 		window: {
-// 			navigator: {
-// 				doNotTrack: '0'
-// 			}
-// 		},
-// 		loaded: function (mixpanel) {
-// 			mixpanel.reset();
-// 			var theUser = getUser().then((user) => {
-// 				mixpanel.register({
-// 					"version": APP_VERSION
-// 				});
-// 				if (user !== "anonymous") {
-// 					mixpanel.identify(user);
-// 					mixpanel.register({
-// 						"$email": user
-// 					});
-// 					mixpanel.people.set({
-// 						"version": APP_VERSION,
-// 						"$email": user,
-// 						"$name": user
-// 					});
-// 				}
-
-// 			}).catch((err) => { });
-// 			return theUser;
-
-// 		},
-// 		inapp_protocol: 'https://',
-// 		secure_cookie: true
-// 	});
-// }
 
 // hack for typescript
 let module = {};
