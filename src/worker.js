@@ -23,22 +23,19 @@ const STORAGE_MODEL = {
 	verbose: true
 };
 
-function log(...args) {
-	if (STORAGE.verbose) console.log(...args);
-}
-
+/
 async function init() {
 	// await loadScripts();
-	// log("mp-tweaks: scripts loaded");
+	// console.log("mp-tweaks: scripts loaded");
 
 	STORAGE = await getStorage();
 	if (!haveSameShape(STORAGE, STORAGE_MODEL) || STORAGE.version !== APP_VERSION) {
-		log("mp-tweaks: reset");
+		console.log("mp-tweaks: reset");
 		await resetStorageData();
 	}
 
 	if (!STORAGE?.whoami?.email) {
-		log("mp-tweaks: getting user");
+		console.log("mp-tweaks: getting user");
 		const user = await getUser();
 		if (user.email) STORAGE.whoami = user;
 		await setStorage(STORAGE);
@@ -47,7 +44,7 @@ async function init() {
 	return STORAGE;
 }
 
-init().then(() => { log("mp-tweaks: worker initialized"); });
+init().then(() => { console.log("mp-tweaks: worker initialized"); });
 
 
 /*
@@ -57,14 +54,14 @@ HOOKS
 */
 
 //install
-chrome.runtime.onInstalled.addListener(() => { log('mp-tweaks: Extension Installed'); });
+chrome.runtime.onInstalled.addListener(() => { console.log('mp-tweaks: Extension Installed'); });
 
 //page load
 chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 	if (changeInfo.status === 'complete') {
 		// mixpanel tweaks
 		if (tab.url.includes('mixpanel.com') && (tab.url.includes('project') || tab.url.includes('report'))) {
-			log('mp-tweaks: Mixpanel page loaded');
+			console.log('mp-tweaks: Mixpanel page loaded');
 			const userScripts = STORAGE.persistScripts;
 			for (const script of userScripts) {
 				if (SCRIPTS[script]) {
@@ -83,7 +80,7 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 		// ezTrack
 		if (tab.url.includes('http')) {
 			if (STORAGE.EZTrack.enabled) {
-				log('mp-tweaks: starting ezTrack');
+				console.log('mp-tweaks: starting ezTrack');
 				startEzTrack(STORAGE.EZTrack.token);
 				runScript('/src/tweaks/cautionIcon.js');
 			}
@@ -171,7 +168,7 @@ async function handleRequest(request) {
 }
 
 function echo(data) {
-	console.log('mp-tweaks: echoing data...', data);
+	console.console.log('mp-tweaks: echoing data...', data);
 	window.ALTERED_MIXPANEL_DATA = data;
 }
 
@@ -188,7 +185,7 @@ function ezTrackInit(token, opts = {}) {
 			log(`mp-tweaks: waiting for mpEZTrack ... attempt: ${attempts}`);
 			if (attempts > 10) {
 				clearInterval(intervalId);
-				log('mp-tweaks: mpEZTrack not found');
+				console.log('mp-tweaks: mpEZTrack not found');
 			}
 
 		}
