@@ -3,7 +3,7 @@ const APP_VERSION = `2.2`;
 let STORAGE = null;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 
-const TWEAKS = {
+const APP = {
 	currentVersion: APP_VERSION,
 	dataSource: FEATURE_FLAG_URI,
 	init: function () {
@@ -46,7 +46,7 @@ const TWEAKS = {
 
 };
 
-TWEAKS.init();
+APP.init();
 
 
 async function getCurrentTab() {
@@ -130,7 +130,7 @@ function listenForWorker() {
 			case "caught-fetch":
 				// Do something for 'caught-fetch'
 				const { data } = message;
-				TWEAKS.handleCaughtData(data);
+				APP.handleCaughtData(data);
 				break;
 			default:
 				console.log("mp-tweaks: unknown action", message.action);
@@ -172,7 +172,7 @@ function hideLoader() {
 function setCheckbox(state) {
 	for (let setting of state) {
 		try {
-			TWEAKS.DOM[setting].checked = true;
+			APP.DOM[setting].checked = true;
 		} catch (e) {
 			console.error(`failed to toggle ${setting}`, e);
 		}
@@ -229,7 +229,7 @@ function loadInterface() {
 	const { persistScripts = [], whoami = {} } = STORAGE;
 
 	//checkboxes
-	TWEAKS.setCheckbox(persistScripts);
+	APP.setCheckbox(persistScripts);
 
 	//org label
 	if (whoami.orgId) {
@@ -247,7 +247,7 @@ function bindListeners() {
 	//toggle state persists in storage
 	this.DOM.checkboxes.forEach(function (checkbox) {
 		checkbox.addEventListener('click', function (event) {
-			const data = TWEAKS.getCheckbox();
+			const data = APP.getCheckbox();
 			setStorage({ 'persistScripts': data }).then(() => { });
 		});
 	});
@@ -340,7 +340,7 @@ function bindListeners() {
 
 	//save
 	this.DOM.saveChartData.addEventListener('click', () => {
-		TWEAKS.saveJSON(chartData, chartData?.computed_at || "data");
+		APP.saveJSON(chartData, chartData?.computed_at || "data");
 	});
 }
 
@@ -435,7 +435,7 @@ function analytics() {
 					mixpanel.identify(whoami.email);
 					mixpanel.register({
 						"$email": whoami.email,
-						"version": TWEAKS.currentVersion,
+						"version": APP.currentVersion,
 						"name": whoami.name
 					});
 					mixpanel.people.set({ "$name": whoami.name, "$email": whoami.email });

@@ -3,7 +3,7 @@
 const APP_VERSION = `2.2`;
 /** @typedef {import('./types').ChromeStorage} ChromeStorage */
 
-const TWEAKS = {
+const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
 	"featureFlag": { path: "./src/tweaks/featureFlag.js", code: "" },
@@ -68,10 +68,10 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 		// mixpanel tweaks
 		if (tab.url.includes('mixpanel.com') && (tab.url.includes('project') || tab.url.includes('report'))) {
 			log('mp-tweaks: Mixpanel page loaded');
-			const scripts = STORAGE.persistScripts;
-			for (const script of scripts) {
-				if (TWEAKS[script]) {
-					const { path } = TWEAKS[script];
+			const userScripts = STORAGE.persistScripts;
+			for (const script of userScripts) {
+				if (SCRIPTS[script]) {
+					const { path } = SCRIPTS[script];
 					if (path) {
 						log(`mp-tweaks: running ${script}`);
 						chrome.scripting.executeScript({
@@ -88,7 +88,7 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 			if (STORAGE.ezTrack.enabled) {
 				log('mp-tweaks: starting ezTrack');
 				startEzTrack(STORAGE.ezTrack.token);
-
+				runScript('/src/tweaks/cautionIcon.js');
 			}
 		}
 
@@ -164,6 +164,7 @@ async function handleRequest(request) {
 		case 'stop-eztrack':
 			storage.ezTrack.enabled = false;
 			result = false;
+			await runScript(reload);
 			break;
 		default:
 			console.error("mp-tweaks: unknown action", request);
@@ -197,6 +198,10 @@ function ezTrackInit(token, opts = {}) {
 	}
 
 	const intervalId = setInterval(tryInit, 500);
+}
+
+function reload() {
+	window.location.reload()
 }
 
 async function startEzTrack(token) {
@@ -233,9 +238,9 @@ async function fetchScriptContent(scriptPath) {
 }
 
 async function loadScripts() {
-	for (const tweak in TWEAKS) {
-		const script = await fetchScriptContent(TWEAKS[tweak].path);
-		TWEAKS[tweak].code = script;
+	for (const tweak in SCRIPTS) {
+		const script = await fetchScriptContent(SCRIPTS[tweak].path);
+		SCRIPTS[tweak].code = script;
 	}
 }
 
