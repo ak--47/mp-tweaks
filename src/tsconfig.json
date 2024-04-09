@@ -1,0 +1,25 @@
+{
+	"compilerOptions": {
+	  "target": "es6",
+	  "lib": ["es6", "dom", "es2018"],
+	  "allowJs": true, // Allow JavaScript files to be included
+	  "checkJs": true, // Enable type checking for JavaScript files
+	  "noEmit": true, // Do not emit output (no compilation happens)
+	  "strict": true, // Enable strict type checking options
+	  "esModuleInterop": true,
+	  "noImplicitAny": false,
+	  "noImplicitThis": false,
+	  "skipLibCheck": true,
+	  "forceConsistentCasingInFileNames": true,
+	  "typeRoots": ["./"], // Include your current project folder
+	  "types": [] // Specify type declaration files as needed
+	},
+	"include": [
+	  "globals.d.ts", // Include your global type definitions
+	  "./**/*.js" // Include all JavaScript files for IntelliSense
+	],
+	"exclude": [
+	  "node_modules" // Exclude the node_modules directory
+	]
+  }
+  

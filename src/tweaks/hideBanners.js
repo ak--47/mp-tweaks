@@ -1,3 +1,4 @@
+//@ts-nocheck
 var querySelectorShadowDom = function(e) {
 	function t(e, t, u, s) {
 		void 0 === s && (s = null), e = function(e) {

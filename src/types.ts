@@ -17,7 +17,7 @@ export type ChromeStorage = {
 	  token: string;
 	  enabled: boolean;
 	};
-	ezTrack: {
+	EZTrack: {
 	  token: string;
 	  enabled: boolean;
 	};

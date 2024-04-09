@@ -1,3 +1,4 @@
+//@ts-nocheck
 console.log('mp-tweaks: renaming tab!'); 
 setTimeout(() => {
 	var someArr = document.location.pathname.split('/').filter(function (el) {

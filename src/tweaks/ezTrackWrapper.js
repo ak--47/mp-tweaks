@@ -1,3 +1,4 @@
+//@ts-nocheck
 if (!window.mpEZTrack) {
 	console.log('mp-tweaks: eztrack wrapper');
 	var s = document.createElement('script');

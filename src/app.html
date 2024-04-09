@@ -7,10 +7,10 @@
 </head>
 
 <body>
-    <div id="app">
-        <div id="mainPopup">
-            <h1>MP Tweaks</h1>            
-        </div>
+<div id="app">
+<div id="mainPopup">
+	<h1>MP Tweaks</h1>            
+</div>
    
 		<!-- LOADER -->
 		<div id="loader">
@@ -21,7 +21,7 @@
 			</svg>
 		</div>
 
-		<!-- MAIN -->
+		<!-- REST OF APP -->
 		<div id="main" class="hidden">
 
 		<!-- PERSISTENT SCRIPTS -->
@@ -31,20 +31,25 @@
                 <p class="small">always active on <b>all mixpanel tabs</b> when enabled</p>
 
                 <div class="controls">
-                    <div class="option">
+                   
+					<div class="option">
                         <label><input class='toggle' type="checkbox" name='check-1' id="hideBanners">
                         </input>hide banners + outage notifs</label>
                     </div>
-                    <div class="option">
+                    
+					<div class="option">
 						<label> <input class='toggle' type="checkbox" name='check-1' id="renameTabs">
                         </input>concise browser tab titles</label>
                     </div>
+					
 					<div class="option">
 						<label>
 							<input class='toggle' type="checkbox" name='check-1' id="hundredX">
                         </input>100x all charts</label>
                     </div>
+
                 </div>
+
             </form>
         </div>
 
@@ -61,10 +66,22 @@
 		<!-- SESSION REPLAY -->
 		<!-- TODO -->
 			
-		<!-- CREATE STUFF -->
-        <div id="createProject" class="section">
-            <h2>Project Creator</h2>
-			<p class="small">make a <b>new project</b> in <b>your personal org</b> &emsp; &emsp; &emsp; <span id="orgLabel" class="hide">connected org: <b>FOO</b></span></p>
+		<!-- EZTRACK -->
+		<!-- TODO -->
+		<div id="ezTrack" class="section">
+            <h2 class="lower">EZTrack</h2>
+            <p class="small">inject <b>eztrack</b> into <b>all tabs</b>&emsp; &emsp; &emsp; <span id="EZTrackLabel" class="statusText hide">EZTrack is: <b>FOO</b></span></p>
+			<div class="button-input-group">
+				<button class="button fa" id="startEZTrack">START EZTRACK</button> 
+				<button class="button fa" id="stopEZTrack">STOP EZTRACK</button> 
+				<input type="text" id="EZTrackToken" placeholder="Project Token" />
+			</div>
+        </div>
+
+		<!-- CREATE PROJECTS -->
+		<div id="createProject" class="section">
+			<h2>Project Creator</h2>
+			<p class="small">make a <b>new project</b> in <b>your personal org</b> &emsp; &emsp; &emsp; <span id="orgLabel" class="statusText hide">connected org: <b>FOO</b></span></p>
 			<button class="button fa" id="makeProject">MAKE PROJECT</button> 
 				<svg id="makeProjectSpinner" class="hidden" width="50px" height="50px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid" class="lds-rolling" style="background: none;">
 					<circle cx="50" cy="50" fill="none" ng-attr-stroke="{{config.color}}" ng-attr-stroke-width="{{config.width}}" ng-attr-r="{{config.radius}}" ng-attr-stroke-dasharray="{{config.dasharray}}" stroke="#DF7800" stroke-width="4" r="30" stroke-dasharray="141.37166941154067 49.12388980384689" transform="rotate(72.4232 50 50)">
@@ -72,20 +89,11 @@
 					</circle>
 				</svg>
 			
-                <div id="projectDetails">
-                    <p><textarea class="hidden" id="apiRes" style="height: 200px; width: 90%;"></textarea></p>
-                </div>
-   
-        </div>
-    
-
-
-		<!-- EZTRACK -->
-		<!-- TODO -->
-		<div id="ezTrack" class="section">
-            <h2 class="lower">EZTrack</h2>
-            <p class="small">inject <b>eztrack</b> into the current <b>active tab</b></p>
-        </div>
+				<div id="projectDetails">
+					<p><textarea class="hidden" id="apiRes" style="height: 200px; width: 90%;"></textarea></p>
+				</div>
+	
+		</div>
  
 
 		<!-- CHART EDITOR -->	
@@ -111,16 +119,18 @@
 		<!-- FOOTER -->
 		<div id="footer">
             <p class="addMore"><a href="https://docs.google.com/spreadsheets/d/1NPOk9MpGrvA8ruFVv2AToMnL_Yt_Mz8jN52vE89MQ1U/edit#gid=0&range=A1" target="_blank">add a new feature flag</a></p>
-            <p class="byline"><a href="https://forms.gle/sn4aYQAnMEihbwvs8" target="_blank">request a feature</a>
-            </p>
+            <p class="byline"><a href="https://forms.gle/sn4aYQAnMEihbwvs8" target="_blank">request a feature</a>          
         </div>
     </div>
+
 </div>
-    <script src="./lib/saveFile.min.js"></script>
-    <script src="./lib/papaparse.min.js"></script>
-	<script src="./lib/mixpanel-wrapper.js"></script>
-	<script src="./lib/mixpanel.min.js"></script>
-    <script type="module" src="./app.js"></script>
+
+<!-- SCRIPTS -->
+<script src="./lib/saveFile.min.js"></script>
+<script src="./lib/papaparse.min.js"></script>
+<script src="./lib/mixpanel-wrapper.js"></script>
+<script src="./lib/mixpanel.min.js"></script>
+<script type="module" src="./app.js"></script>
 </body>
 
 </html>

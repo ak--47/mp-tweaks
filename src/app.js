@@ -1,4 +1,5 @@
-/** @typedef {import('./types').Storage} Storage */
+/** @typedef {import('./types').ChromeStorage} PersistentStorage */
+
 const APP_VERSION = `2.2`;
 let STORAGE = null;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
@@ -6,8 +7,24 @@ const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7G
 const APP = {
 	currentVersion: APP_VERSION,
 	dataSource: FEATURE_FLAG_URI,
+	DOM: {},
+	cacheDOM,
+	bindListeners,
+	loadInterface,
+	getCheckbox,
+	setCheckbox,
+	fetchCSV,
+	buildButtons,
+	analytics,
+	saveJSON,
+	hideLoader,
+	getStorage,
+	setStorage,
+	messageWorker,
+	listenForWorker,
+	handleCaughtData,
 	init: function () {
-		this.cacheDom();
+		this.cacheDOM();
 		this.getStorage().then(() => {
 			this.loadInterface();
 			this.bindListeners();
@@ -26,23 +43,6 @@ const APP = {
 				});
 		});
 	},
-	DOM: {},
-	cacheDom: cacheDOM,
-	bindListeners,
-	loadInterface,
-	getCheckbox,
-	setCheckbox,
-	fetchCSV,
-	buildButtons,
-	analytics,
-	saveJSON,
-	makeProject,
-	hideLoader,
-	getStorage,
-	setStorage,
-	messageWorker,
-	listenForWorker,
-	handleCaughtData,
 
 };
 
@@ -113,8 +113,8 @@ async function setStorage(data) {
 				reject(new Error(chrome.runtime.lastError));
 			} else {
 				messageWorker('refresh-storage'); // tell the worker to refresh
-				STORAGE = null;
-				resolve();
+				STORAGE = data;
+				resolve(data);
 			}
 		});
 	});
@@ -189,10 +189,10 @@ function getCheckbox() {
 }
 
 function cacheDOM() {
+	//main
 	this.DOM.main = document.querySelector('#main');
 	this.DOM.perTab = document.querySelector('#perTab');
 	this.DOM.checkboxes = document.querySelectorAll('.toggle');
-	this.DOM.removeAll = document.querySelector('#removeAll');
 	this.DOM.loader = document.getElementById('loader');
 
 	//toggles
@@ -201,7 +201,8 @@ function cacheDOM() {
 	this.DOM.renameTabs = document.querySelector('#renameTabs');
 	this.DOM.hundredX = document.querySelector('#hundredX');
 
-	//static buttons
+	//buttons
+	this.DOM.buttonWrapper = document.querySelector('#buttons');
 	this.DOM.fetchChartData = document.querySelector('#fetchChartData');
 	this.DOM.postChartData = document.querySelector('#postChartData');
 	this.DOM.resetDataEditor = document.querySelector('#resetDataEditor');
@@ -212,7 +213,12 @@ function cacheDOM() {
 	this.DOM.makeProject = document.querySelector('#makeProject');
 	this.DOM.projectDetails = document.querySelector('#projectDetails textarea');
 	this.DOM.makeProjectSpinner = document.querySelector('#makeProjectSpinner');
+	this.DOM.removeAll = document.querySelector('#removeAll');
+	this.DOM.startEZTrack = document.querySelector('#startEZTrack');
+	this.DOM.stopEZTrack = document.querySelector('#stopEZTrack');
 
+	//inputs
+	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
 
 	//error messages
 	this.DOM.contextError = document.querySelector('#contextError');
@@ -221,14 +227,15 @@ function cacheDOM() {
 	//labels
 	this.DOM.orgLabel = document.querySelector('#orgLabel');
 	this.DOM.orgPlaceholder = document.querySelector('#orgLabel b');
-
+	this.DOM.EZTrackLabel = document.querySelector('#EZTrackLabel');
+	this.DOM.EZTrackStatus = document.querySelector('#EZTrackLabel b');
 
 }
 
 function loadInterface() {
-	const { persistScripts = [], whoami = {} } = STORAGE;
+	const { persistScripts = [], whoami = {}, EZTrack = {} } = STORAGE;
 
-	//checkboxes
+	//load toggle states
 	APP.setCheckbox(persistScripts);
 
 	//org label
@@ -241,10 +248,17 @@ function loadInterface() {
 		this.DOM.orgLabel.classList.add('hidden');
 		this.DOM.makeProject.disabled = true;
 	}
+
+	//EZTrack labels + token
+	if (EZTrack.token) this.DOM.EZTrackToken.value = EZTrack.token;
+	this.DOM.EZTrackLabel.classList.remove('hidden');
+	if (EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `ENABLED`;
+	if (!EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `DISABLED`;
+	
 }
 
 function bindListeners() {
-	//toggle state persists in storage
+	//TOGGLES
 	this.DOM.checkboxes.forEach(function (checkbox) {
 		checkbox.addEventListener('click', function (event) {
 			const data = APP.getCheckbox();
@@ -252,7 +266,12 @@ function bindListeners() {
 		});
 	});
 
+	this.DOM.removeAll.addEventListener('click', async function () {
+		messageWorker('remove-flags');
+		mixpanel.track('Remove All Flags');
+	});
 
+	//CREATE PROJECT
 	this.DOM.makeProject.addEventListener('click', async () => {
 		this.DOM.projectDetails.classList.add('hidden');
 		this.DOM.makeProjectSpinner.classList.remove('hidden');
@@ -262,7 +281,7 @@ function bindListeners() {
 			const newProject = await messageWorker('make-project');
 			const { api_secret = "", id = "", name = "", token = "", url = "" } = newProject;
 			const display = `Project Name: ${name}\nProject ID: ${id}\nAPI Secret: ${api_secret}\nAPI Token: ${token}\nProject URL: ${url}`;
-			this.saveJSON(JSON.stringify(newProject, null, 2), `project-${name}`);
+			this.saveJSON(newProject, `project-${name}`);
 			this.DOM.projectDetails.value = display;
 
 		}
@@ -276,12 +295,9 @@ function bindListeners() {
 
 	});
 
-	this.DOM.removeAll.addEventListener('click', async function () {
-		messageWorker('remove-flags');
-		mixpanel.track('Remove All Flags');
-	});
 
-	//fetch chart data
+
+	//GET CHART DATA
 	this.DOM.fetchChartData.addEventListener('click', () => {
 		console.log('mp-tweaks: catch-fetch');
 		const warningMessage = setTimeout(() => {
@@ -297,10 +313,9 @@ function bindListeners() {
 			console.log('mp-tweaks: caught-fetch', result);
 		});
 
-
 	});
 
-	//post chart data
+	//DRAW CHART DATA
 	this.DOM.postChartData.addEventListener('click', () => {
 		//validate we have JSON
 		let isValidJSON = false;
@@ -318,15 +333,20 @@ function bindListeners() {
 		}
 	});
 
-	//randomize
+	//RANDOMIZE
 	this.DOM.randomize.addEventListener('click', () => {
-		let currentData = JSON.parse(this.DOM.rawDataTextField.value);
-		let mutatedData = flipToInt(currentData);
-		this.DOM.rawDataTextField.value = JSON.stringify(mutatedData, null, 2);
+		try {
+			let currentData = JSON.parse(this.DOM.rawDataTextField.value);
+			let mutatedData = flipIntegers(currentData);
+			this.DOM.rawDataTextField.value = JSON.stringify(mutatedData, null, 2);
+		}
+		catch (e) {
+			console.log('mp-tweaks: error randomizing', e);
+		}
 
 	});
 
-	//reset
+	//RESET DATA EDITOR
 	this.DOM.resetDataEditor.addEventListener('click', () => {
 		this.DOM.fetchChartData.classList.remove('hidden');
 		this.DOM.postChartData.classList.add('hidden');
@@ -338,10 +358,23 @@ function bindListeners() {
 		this.DOM.saveChartData.classList.add('hidden');
 	});
 
-	//save
+	//SAVE DATA
 	this.DOM.saveChartData.addEventListener('click', () => {
-		APP.saveJSON(chartData, chartData?.computed_at || "data");
+		const chartData = JSON.parse(this.DOM.rawDataTextField.value);
+		this.saveJSON(chartData, `data-${chartData?.computed_at}` || "data");
 	});
+
+	this.DOM.startEZTrack.addEventListener('click', () => {
+		const token = this.DOM.EZTrackToken.value;
+		if (!token) alert('token required');
+		this.DOM.EZTrackStatus.textContent = `ENABLED`;
+		messageWorker('start-eztrack', { token });		
+	})
+
+	this.DOM.stopEZTrack.addEventListener('click', () => {
+		this.DOM.EZTrackStatus.textContent = `DISABLED`;
+		messageWorker('stop-eztrack');		
+	})
 }
 
 function buildButtons(object) {
@@ -356,27 +389,23 @@ function buildButtons(object) {
 		messageWorker('add-flag', { flag });
 		mixpanel.track(`${name}`);
 	};
-	document.getElementById('buttons').appendChild(newButton);
+	this.DOM.buttonWrapper.appendChild(newButton);
 
 
 }
 
-function flipToInt(obj) {
+function flipIntegers(obj) {
 	Object.keys(obj).forEach(key => {
-
-		// console.log(`key: ${key}, type: ${typeof obj[key]}`)
 
 		//recursion :(
 		if (typeof obj[key] === 'object') {
 			try {
-				flipToInt(obj[key]);
+				flipIntegers(obj[key]);
 			} catch (e) { }
 		}
 
 		//ewww ... mutating the input
 		else if (typeof obj[key] === 'number') {
-			//check if it can be parsed
-			//const parsed = this.filterInt(obj[key]);
 			if (obj[key] !== 1) {
 				//it's a number; change it (maybe)
 				let currentNum = obj[key];
@@ -450,15 +479,13 @@ function analytics() {
 	});
 }
 
-function filterInt(value) {
-	if (/^[-+]?(\d+|Infinity)$/.test(value)) {
-		return Number(value);
-	} else {
-		return NaN;
-	}
-}
 
 function saveJSON(chartData = {}, fileName = `no fileName`) {
+	if (typeof chartData !== 'string') {
+		chartData = JSON.stringify(chartData, null, 2);
+	}
+
+	// @ts-ignore
 	const chartBlob = new Blob([chartData], {
 		type: "text/plain;charset=utf-8"
 	});

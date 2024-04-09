@@ -1,3 +1,4 @@
+//@ts-nocheck
 if (!window.MIXPANEL_MULTIPLIER_ACTIVE) {
 	console.log('mp-tweaks: 100x wrapper'); 
 	var s = document.createElement('script');

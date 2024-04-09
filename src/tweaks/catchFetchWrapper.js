@@ -1,3 +1,4 @@
+//@ts-nocheck
 if (!window.MIXPANEL_CATCH_FETCH_ACTIVE) {
 	console.log('mp-tweaks: catch fetch wrapper');
 	var s = document.createElement('script');
