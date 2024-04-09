@@ -67,7 +67,7 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 				if (SCRIPTS[script]) {
 					const { path } = SCRIPTS[script];
 					if (path) {
-						log(`mp-tweaks: running ${script}`);
+						console.log(`mp-tweaks: running ${script}`);
 						chrome.scripting.executeScript({
 							target: { tabId: tabId },
 							files: [path]
@@ -94,11 +94,11 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 
 // messages from extension
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
-	log(`mp-tweaks: got ${request?.action} message`);
+	console.log(`mp-tweaks: got ${request?.action} message`);
 
 	handleRequest(request)
 		.then((result) => {
-			log(`mp-tweaks: completed ${request.action}`);
+			console.log(`mp-tweaks: completed ${request.action}`);
 			if (result) sendResponse(result);
 		})
 		.catch(error => {
@@ -182,7 +182,7 @@ function ezTrackInit(token, opts = {}) {
 			mpEZTrack.init(token, opts); // Initialize mpEZTrack
 		} else {
 			attempts++;
-			log(`mp-tweaks: waiting for mpEZTrack ... attempt: ${attempts}`);
+			console.log(`mp-tweaks: waiting for mpEZTrack ... attempt: ${attempts}`);
 			if (attempts > 10) {
 				clearInterval(intervalId);
 				console.log('mp-tweaks: mpEZTrack not found');
