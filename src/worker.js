@@ -1,7 +1,8 @@
-/** @typedef {import('./types').ChromeStorage} ChromeStorage */
+/** @typedef {import('./types').ChromeStorage} PersistentStorage */
+/** @type {PersistentStorage} */
+let STORAGE;
 
 const APP_VERSION = `2.2`;
-let STORAGE = {};
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -10,8 +11,7 @@ const SCRIPTS = {
 	"renameTabs": { path: "./src/tweaks/renameTabs.js", code: "" }
 };
 
-
-/** @type {ChromeStorage} */
+/** @type {PersistentStorage} */
 const STORAGE_MODEL = {
 	version: APP_VERSION,
 	persistScripts: [],
@@ -23,6 +23,11 @@ const STORAGE_MODEL = {
 	verbose: true
 };
 
+/*
+----
+RUNTIME
+----
+*/
 
 async function init() {
 	// await loadScripts();
@@ -112,40 +117,48 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
 /*
 ----
-ASYNC
+ROUTING
 ----
 */
-
 
 async function handleRequest(request) {
 	if (!request.action) throw new Error('No action provided');
 	let result = null;
+	const catchFetchUri = chrome.runtime.getURL('/src/tweaks/catchFetch.js');
 	switch (request.action) {
 		case 'refresh-storage':
 			result = await refreshStorageData();
 			break;
+
 		case 'add-flag':
 			result = await runScript(addFlag, [request.data.flag]);
 			break;
+
 		case 'remove-flags':
 			result = await runScript(removeFlags);
 			break;
+
 		case 'analytics':
 			// result = await analytics();
 			break;
+
 		case 'make-project':
 			result = await makeProject();
 			break;
+
 		case 'catch-fetch':
-			result = await runScript("./src/tweaks/catchFetchWrapper.js");
+			const [scriptOutput] = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
+			const { target, data } = scriptOutput.result;
+			if (target === 'response') await messageExtension('caught-response', data);
+			if (target === 'request') await messageExtension('caught-request', data);
+			result = data;
 			break;
-		case 'caught-fetch':
-			result = request.data;
-			return;
+
 		case 'draw-chart':
-			await runScript(echo, [request.data], null);
-			result = await runScript("./src/tweaks/catchFetchWrapper.js");
+			await runScript(echo, [request.data, "ALTERED_MIXPANEL_DATA"]);
+			result = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
 			break;
+
 		case 'start-eztrack':
 			STORAGE.EZTrack.enabled = true;
 			if (request?.data?.token) {
@@ -155,12 +168,14 @@ async function handleRequest(request) {
 			const token = STORAGE.EZTrack.token;
 			if (token) result = await startEzTrack(token);
 			break;
+
 		case 'stop-eztrack':
 			STORAGE.EZTrack.enabled = false;
 			result = false;
 			await setStorage(STORAGE);
 			await runScript(reload);
 			break;
+
 		default:
 			console.error("mp-tweaks: unknown action", request);
 			result = "Unknown action";
@@ -168,44 +183,8 @@ async function handleRequest(request) {
 	return result;
 }
 
-function echo(data) {
-	console.log('mp-tweaks: echoing data...', data);
-	window.ALTERED_MIXPANEL_DATA = data;
-}
 
-function ezTrackInit(token, opts = {}) {
-	if (Object.keys(opts).length === 0) opts = { verbose: true, api_host: "https://express-proxy-lmozz6xkha-uc.a.run.app" };
-	let attempts = 0;
-
-	function tryInit() {
-		if (window.mpEZTrack) {
-			clearInterval(intervalId); // Clear the interval once mpEZTrack is found
-			mpEZTrack.init(token, opts, true); // Initialize mpEZTrack
-		} else {
-			attempts++;
-			console.log(`mp-tweaks: waiting for mpEZTrack ... attempt: ${attempts}`);
-			if (attempts > 15) {
-				clearInterval(intervalId);
-				console.log('mp-tweaks: mpEZTrack not found');
-			}
-
-		}
-	}
-
-	const intervalId = setInterval(tryInit, 1000);
-}
-
-function reload() {
-	window.location.reload();
-}
-
-async function startEzTrack(token) {
-	const library = await runScript("./src/lib/eztrack.min.js", [], null, { world: "ISOLATED" });
-	const init = await runScript(ezTrackInit, [token], null, { world: "ISOLATED" });
-	return [library, init];
-}
-
-async function runScript(funcOrPath, args = [], target, opts) {
+async function runScript(funcOrPath, args = [], opts, target) {
 	if (!target) target = await getCurrentTab();
 	if (typeof funcOrPath === 'function') {
 		let payload = { target: { tabId: target.id }, func: funcOrPath };
@@ -241,109 +220,89 @@ async function loadScripts() {
 	}
 }
 
-async function resetStorageData() {
-	await clearStorageData();
-	STORAGE = STORAGE_MODEL;
-	await setStorage(STORAGE);
-	return STORAGE_MODEL;
-}
-
-async function refreshStorageData() {
-	STORAGE = await getStorage();
-	return STORAGE;
-}
-
-async function getCurrentTab() {
-	return new Promise((resolve, reject) => {
-		chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-			if (chrome.runtime.lastError) {
-				reject(new Error(chrome.runtime.lastError));
-			} else if (tabs[0]) {
-				resolve(tabs[0]);
-			} else {
-				reject(new Error('No active tab found'));
-			}
-		});
-	});
-}
-
-
-async function getUser() {
-	const user = { name: '', email: '', oauthToken: '', orgId: '' };
-	const url = `https://mixpanel.com/oauth/access_token`;
-	const request = await fetch(url, { credentials: 'include' });
-	const response = await request.text();
+async function messageExtension(action, data) {
 	try {
-		const oauthToken = JSON.parse(response)?.token;
-		if (oauthToken) {
-			user.oauthToken = oauthToken;
-			const info = await fetch(`https://mixpanel.com/api/app/me/?include_workspace_users=false`, { headers: { Authorization: `Bearer ${oauthToken}` } });
-			const data = await info.json();
-			if (data?.results) {
-				const { user_name = "", user_email = "" } = data.results;
-				if (user_name) user.name = user_name;
-				if (user_email) user.email = user_email;
-				const foundOrg = Object.values(data.results.organizations).filter(o => o.name.includes(user_name))?.pop();
-				if (foundOrg) {
-					user.orgId = foundOrg.id?.toString();
-					user.orgName = foundOrg.name;
-				}
-				if (!foundOrg) {
-					// the name is not in the orgs, so we need to find the org in which the user is the owner
-					const ignoreProjects = [1673847, 1866253, 328203];
-					const possibleOrg = Object.values(data.results.organizations)
-						.filter(o => o.role === 'owner')
-						.filter(o => !ignoreProjects.includes(o.id))?.pop();
-					if (possibleOrg) {
-						user.orgId = possibleOrg?.id?.toString();
-						user.orgName = possibleOrg.name;
-					}
-				}
+		console.log('mp-tweaks: sending message to popup:', action);
+		const sent = await chrome.runtime.sendMessage({ action, data });
+		return sent;
+	}
+	catch (e) {
+		console.error('mp-tweaks: error sending message:', e, "action:", action, "data", data);
+		return e;
+	}
+}
+
+
+/*
+----
+WORKFLOWS
+----
+*/
+
+function catchFetchWrapper(data, url) {
+	return new Promise((resolve, reject) => {
+		if (!window.MIXPANEL_CATCH_FETCH_ACTIVE) {
+			console.log('mp-tweaks: catch fetch wrapper');
+			window.CATCH_FETCH_INTENT = data.target;
+			var s = document.createElement('script');
+			s.src = url;
+			s.onload = function () {
+				// @ts-ignore
+				this.remove();
+			};
+			(document.head || document.documentElement).appendChild(s);
+
+			window.addEventListener("caught-request", function (event) {
+				// Send data to service worker
+				// @ts-ignore
+				resolve({ data: event.detail, target: data.target });
+			});
+
+			window.addEventListener("caught-response", function (event) {
+				// Send data to service worker
+				// @ts-ignore
+				resolve({ data: event.detail, target: data.target });
+			});
+		}
+	});
+
+}
+
+function echo(data, key) {
+	console.log(`mp-tweaks: echoing data at key ${key}...`, data);
+	window[key] = data;
+}
+
+function ezTrackInit(token, opts = {}) {
+	if (Object.keys(opts).length === 0) opts = { verbose: true, api_host: "https://express-proxy-lmozz6xkha-uc.a.run.app" };
+	let attempts = 0;
+
+	function tryInit() {
+		if (window.mpEZTrack) {
+			clearInterval(intervalId); // Clear the interval once mpEZTrack is found
+			mpEZTrack.init(token, opts, true); // Initialize mpEZTrack
+		} else {
+			attempts++;
+			console.log(`mp-tweaks: waiting for mpEZTrack ... attempt: ${attempts}`);
+			if (attempts > 15) {
+				clearInterval(intervalId);
+				console.log('mp-tweaks: mpEZTrack not found');
 			}
+
 		}
 	}
-	catch (err) {
-		console.error('mp-tweaks: get user err', err);
-	}
 
-	return user;
+	const intervalId = setInterval(tryInit, 1000);
 }
 
-async function getStorage(keys = null) {
-	return new Promise((resolve, reject) => {
-		chrome.storage.sync.get(keys, (result) => {
-			if (chrome.runtime.lastError) {
-				reject(new Error(chrome.runtime.lastError));
-			} else {
-				resolve(result);
-			}
-		});
-	});
+function reload() {
+	window.location.reload();
 }
 
-async function setStorage(data) {
-	return new Promise((resolve, reject) => {
-		chrome.storage.sync.set(data, () => {
-			if (chrome.runtime.lastError) {
-				reject(new Error(chrome.runtime.lastError));
-			} else {
-				STORAGE = data;
-				resolve(data);
-			}
-		});
-	});
-}
-
-async function clearStorageData() {
-	return new Promise((resolve, reject) => {
-		chrome.storage.sync.clear(() => {
-			if (chrome.runtime.lastError) {
-				reject(new Error(chrome.runtime.lastError.message));
-			} else {
-				resolve({});
-			}
-		});
-	});
+async function startEzTrack(token) {
+	const library = await runScript("./src/lib/eztrack.min.js", [], { world: "ISOLATED" });
+	const init = await runScript(ezTrackInit, [token], { world: "ISOLATED" });
+	return [library, init];
 }
 
 async function makeProject() {
@@ -389,13 +348,6 @@ async function makeProject() {
 	return data;
 }
 
-
-/*
-----
-HELPERS
-----
-*/
-
 function removeFlags() {
 	const url = new URL(document.location.href); // Use .href to get the string
 	if (url.href.includes('mixpanel') && url.href.includes('project')) {
@@ -422,6 +374,12 @@ function addFlag(flag) {
 	}
 }
 
+
+/*
+----
+HELPERS
+----
+*/
 
 
 function genName() {
@@ -492,6 +450,119 @@ function haveSameShape(obj1, obj2) {
 
 	return true;
 }
+
+/*
+----
+STORAGE
+----
+*/
+
+async function resetStorageData() {
+	await clearStorageData();
+	STORAGE = STORAGE_MODEL;
+	await setStorage(STORAGE);
+	return STORAGE_MODEL;
+}
+
+async function refreshStorageData() {
+	STORAGE = await getStorage();
+	return STORAGE;
+}
+
+async function getCurrentTab() {
+	return new Promise((resolve, reject) => {
+		chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+			if (chrome.runtime.lastError) {
+				reject(new Error(chrome.runtime.lastError));
+			} else if (tabs[0]) {
+				resolve(tabs[0]);
+			} else {
+				reject(new Error('No active tab found'));
+			}
+		});
+	});
+}
+
+async function getStorage(keys = null) {
+	return new Promise((resolve, reject) => {
+		chrome.storage.sync.get(keys, (result) => {
+			if (chrome.runtime.lastError) {
+				reject(new Error(chrome.runtime.lastError));
+			} else {
+				resolve(result);
+			}
+		});
+	});
+}
+
+async function setStorage(data) {
+	return new Promise((resolve, reject) => {
+		chrome.storage.sync.set(data, () => {
+			if (chrome.runtime.lastError) {
+				reject(new Error(chrome.runtime.lastError));
+			} else {
+				STORAGE = data;
+				resolve(data);
+			}
+		});
+	});
+}
+
+async function clearStorageData() {
+	return new Promise((resolve, reject) => {
+		chrome.storage.sync.clear(() => {
+			if (chrome.runtime.lastError) {
+				reject(new Error(chrome.runtime.lastError.message));
+			} else {
+				resolve({});
+			}
+		});
+	});
+}
+
+async function getUser() {
+	const user = { name: '', email: '', oauthToken: '', orgId: '', orgName: '' };
+	const url = `https://mixpanel.com/oauth/access_token`;
+	const request = await fetch(url, { credentials: 'include' });
+	const response = await request.text();
+	try {
+		const oauthToken = JSON.parse(response)?.token;
+		if (oauthToken) {
+			user.oauthToken = oauthToken;
+			const info = await fetch(`https://mixpanel.com/api/app/me/?include_workspace_users=false`, { headers: { Authorization: `Bearer ${oauthToken}` } });
+			const data = await info.json();
+			if (data?.results) {
+				const { user_name = "", user_email = "" } = data.results;
+				if (user_name) user.name = user_name;
+				if (user_email) user.email = user_email;
+				const foundOrg = Object.values(data.results.organizations).filter(o => o.name.includes(user_name))?.pop();
+				if (foundOrg) {
+					user.orgId = foundOrg.id?.toString();
+					user.orgName = foundOrg.name;
+				}
+				if (!foundOrg) {
+					// the name is not in the orgs, so we need to find the org in which the user is the owner
+					const ignoreProjects = [1673847, 1866253, 328203];
+					const possibleOrg = Object.values(data.results.organizations)
+						.filter(o => o.role === 'owner')
+						.filter(o => !ignoreProjects.includes(o.id))?.pop();
+					if (possibleOrg) {
+						user.orgId = possibleOrg?.id?.toString();
+						user.orgName = possibleOrg.name;
+					}
+				}
+			}
+		}
+	}
+	catch (err) {
+		console.error('mp-tweaks: get user err', err);
+	}
+
+	return user;
+}
+
+
+
 
 
 // hack for typescript

@@ -1,7 +1,9 @@
 /** @typedef {import('./types').ChromeStorage} PersistentStorage */
+/** @type {PersistentStorage} */
+// @ts-ignore
+let STORAGE;
 
 const APP_VERSION = `2.2`;
-let STORAGE = null;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 
 const APP = {
@@ -22,7 +24,8 @@ const APP = {
 	setStorage,
 	messageWorker,
 	listenForWorker,
-	handleCaughtData,
+	dataEditorHandleCatch,
+	queryBuilderHandleCatch,
 	init: function () {
 		this.cacheDOM();
 		this.getStorage().then(() => {
@@ -47,7 +50,6 @@ const APP = {
 };
 
 APP.init();
-
 
 async function getCurrentTab() {
 	return new Promise((resolve, reject) => {
@@ -99,6 +101,7 @@ async function getStorage(keys = null) {
 			if (chrome.runtime.lastError) {
 				reject(new Error(chrome.runtime.lastError));
 			} else {
+				/** @type {PersistentStorage} */
 				STORAGE = result;
 				resolve(result);
 			}
@@ -120,17 +123,23 @@ async function setStorage(data) {
 	});
 }
 
-
 // listen for messages from the worker
 function listenForWorker() {
 	chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
 		console.log("mp-tweaks: received message", message);
 
 		switch (message.action) {
-			case "caught-fetch":
-				// Do something for 'caught-fetch'
-				const { data } = message;
-				APP.handleCaughtData(data);
+			case "caught-response":
+				const { data: response } = message;
+				APP.dataEditorHandleCatch(response);
+				break;
+			case "caught-request":
+				const { data: request } = message;
+				APP.queryBuilderHandleCatch(request);
+			case "refresh-storage":
+				APP.getStorage().then(() => {
+					APP.loadInterface();
+				});
 				break;
 			default:
 				console.log("mp-tweaks: unknown action", message.action);
@@ -152,7 +161,7 @@ function sendMessageAsync(payload) {
 	});
 }
 
-function handleCaughtData(data) {
+function dataEditorHandleCatch(data) {
 	this.DOM.fetchChartData.classList.add('hidden');
 	this.DOM.postChartData.classList.remove('hidden');
 	this.DOM.resetDataEditor.classList.remove('hidden');
@@ -161,6 +170,10 @@ function handleCaughtData(data) {
 	this.DOM.randomize.classList.remove('hidden');
 	this.DOM.saveChartData.classList.remove('hidden');
 	this.DOM.rawDataTextField.value = JSON.stringify(data, null, 2);
+}
+
+function queryBuilderHandleCatch(data) {
+	//todo!
 }
 
 function hideLoader() {
@@ -216,9 +229,12 @@ function cacheDOM() {
 	this.DOM.removeAll = document.querySelector('#removeAll');
 	this.DOM.startEZTrack = document.querySelector('#startEZTrack');
 	this.DOM.stopEZTrack = document.querySelector('#stopEZTrack');
+	this.DOM.startReplay = document.querySelector('#startReplay');
+	this.DOM.stopReplay = document.querySelector('#stopReplay');
 
 	//inputs
 	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
+	this.DOM.sessionReplayToken = document.querySelector('#EZTrackToken');
 
 	//error messages
 	this.DOM.contextError = document.querySelector('#contextError');
@@ -229,11 +245,13 @@ function cacheDOM() {
 	this.DOM.orgPlaceholder = document.querySelector('#orgLabel b');
 	this.DOM.EZTrackLabel = document.querySelector('#EZTrackLabel');
 	this.DOM.EZTrackStatus = document.querySelector('#EZTrackLabel b');
+	this.DOM.sessionReplayLabel = document.querySelector('#sessionReplayLabel');
+	this.DOM.sessionReplayStatus = document.querySelector('#sessionReplayLabel b');
 
 }
 
 function loadInterface() {
-	const { persistScripts = [], whoami = {}, EZTrack = {} } = STORAGE;
+	const { persistScripts, whoami, EZTrack, sessionReplay } = STORAGE;
 
 	//load toggle states
 	APP.setCheckbox(persistScripts);
@@ -254,7 +272,14 @@ function loadInterface() {
 	this.DOM.EZTrackLabel.classList.remove('hidden');
 	if (EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `ENABLED`;
 	if (!EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `DISABLED`;
-	
+
+	//session replay labels + token
+	if (sessionReplay.token) this.DOM.sessionReplayToken.value = sessionReplay.token;
+	this.DOM.sessionReplayLabel.classList.remove('hidden');
+	if (sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `ENABLED`;
+	if (!sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `DISABLED`;
+
+
 }
 
 function bindListeners() {
@@ -305,7 +330,7 @@ function bindListeners() {
 				this.DOM.contextError.classList.add('hidden');
 			}
 		}, 5000);
-		messageWorker('catch-fetch').then((result) => {
+		messageWorker('catch-fetch', { target: "response" }).then((result) => {
 			// result is an object with the data from the page
 			clearTimeout(warningMessage);
 			console.log('mp-tweaks: caught-fetch', result);
@@ -327,7 +352,7 @@ function bindListeners() {
 
 		if (isValidJSON) {
 			const alteredData = JSON.parse(this.DOM.rawDataTextField.value);
-			messageWorker('draw-chart', { ...alteredData });
+			messageWorker('draw-chart', { ...alteredData, target: "response"});
 		}
 	});
 
@@ -366,13 +391,13 @@ function bindListeners() {
 		const token = this.DOM.EZTrackToken.value;
 		if (!token) alert('token required');
 		this.DOM.EZTrackStatus.textContent = `ENABLED`;
-		messageWorker('start-eztrack', { token });		
-	})
+		messageWorker('start-eztrack', { token });
+	});
 
 	this.DOM.stopEZTrack.addEventListener('click', () => {
 		this.DOM.EZTrackStatus.textContent = `DISABLED`;
-		messageWorker('stop-eztrack');		
-	})
+		messageWorker('stop-eztrack');
+	});
 }
 
 function buildButtons(object) {
@@ -456,7 +481,7 @@ function analytics() {
 		loaded: function (mixpanel) {
 			const current_distinct_id = mixpanel.get_distinct_id();
 			if (!current_distinct_id.includes("@")) {
-				const { whoami = {} } = STORAGE;
+				const { whoami } = STORAGE;
 				if (whoami?.email) {
 					console.log(`mp-tweaks: setting distinct id to ${whoami.email}`);
 					mixpanel.identify(whoami.email);

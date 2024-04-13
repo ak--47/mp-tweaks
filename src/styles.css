@@ -20,7 +20,9 @@ body {
     background-color: var(--main-bg-color);
     color: var(--text-color);
     font-family: 'Helvetica Neue', 'Helvetica', 'Tahoma', 'Geneva', 'Arial', sans-serif;
-	height: 700px;
+	height: 100%;
+	min-height: 700px;
+	margin-bottom: 20px;
 }
 
 
@@ -45,7 +47,7 @@ div#loader svg {
     height: 300px; /* Adjust the size of the SVG as needed */
 }
 
-#EZTrackToken {
+.tokenEntry {
 	width: 239px;
 }
 
