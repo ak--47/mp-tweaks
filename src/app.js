@@ -110,6 +110,7 @@ async function getStorage(keys = null) {
 }
 
 async function setStorage(data) {
+	data.last_updated = Date.now();
 	return new Promise((resolve, reject) => {
 		chrome.storage.sync.set(data, () => {
 			if (chrome.runtime.lastError) {

@@ -1,6 +1,7 @@
 /** @typedef {import('./types').ChromeStorage} PersistentStorage */
 /** @type {PersistentStorage} */
 let STORAGE;
+let cachedFlags = null;
 
 const APP_VERSION = `2.2`;
 const SCRIPTS = {
@@ -20,7 +21,8 @@ const STORAGE_MODEL = {
 	featureFlags: [],
 	sessionReplay: { token: "", enabled: false },
 	EZTrack: { token: "", enabled: false },
-	verbose: true
+	verbose: true,
+	last_updated: Date.now()
 };
 
 /*
@@ -496,6 +498,7 @@ async function getStorage(keys = null) {
 }
 
 async function setStorage(data) {
+	data.last_updated = Date.now();
 	return new Promise((resolve, reject) => {
 		chrome.storage.sync.set(data, () => {
 			if (chrome.runtime.lastError) {

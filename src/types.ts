@@ -22,6 +22,7 @@ export type ChromeStorage = {
 	  enabled: boolean;
 	};
 	verbose: boolean;
+	last_updated?: number;
   };
   
 
