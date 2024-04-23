@@ -12,6 +12,9 @@ body {
 	
 }
 
+#modHeader .controls input {
+	margin-bottom: 4px;
+}
 
 
 #app {

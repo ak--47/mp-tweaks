@@ -164,6 +164,7 @@ function sendMessageAsync(payload) {
 
 function dataEditorHandleCatch(data) {
 	this.DOM.fetchChartData.classList.add('hidden');
+	this.DOM.buildChartPayload.classList.add('hidden');
 	this.DOM.postChartData.classList.remove('hidden');
 	this.DOM.resetDataEditor.classList.remove('hidden');
 	this.DOM.rawDataWrapper.classList.remove('hidden');
@@ -174,7 +175,29 @@ function dataEditorHandleCatch(data) {
 }
 
 function queryBuilderHandleCatch(data) {
-	//todo!
+	this.DOM.fetchChartData.classList.add('hidden');
+	this.DOM.buildChartPayload.classList.add('hidden');
+	this.DOM.postChartData.classList.add('hidden');
+	this.DOM.resetDataEditor.classList.remove('hidden');
+	this.DOM.rawDataWrapper.classList.remove('hidden');
+	this.DOM.rawDataTextField.classList.remove('hidden');
+	this.DOM.randomize.classList.add('hidden');
+	this.DOM.saveChartData.classList.remove('hidden');
+	const region = data?.region || 'us'; //todo
+	let reportName = data?.report_query_origin || data?.tracking_props?.report_name;
+	if (reportName === 'flows') reportName = 'arb_funnels';
+	const [projectId, workspaceId] = data?.tracking_props?.request_url?.split('/')?.filter(a => !isNaN(parseInt(a)));
+	const curlSnippet = String.raw`
+	curl 'https://mixpanel.com/api/query/${reportName}?workspace_id=${workspaceId}&project_id=${projectId}' \
+  -H 'accept: */*' \
+  -H 'authorization: Bearer ${STORAGE.whoami.oauthToken}' \
+  -H 'cache-control: no-cache' \
+  -H 'content-type: application/json; charset=UTF-8' \
+  -H 'user-agent: mp-tweaks' \
+  --data-raw '${JSON.stringify(data)}'
+	`.trim();
+	this.DOM.rawDataTextField.value = curlSnippet;
+	console.log('mp-tweaks: query builder handled catch', data);
 }
 
 function hideLoader() {
@@ -218,6 +241,7 @@ function cacheDOM() {
 	//buttons
 	this.DOM.buttonWrapper = document.querySelector('#buttons');
 	this.DOM.fetchChartData = document.querySelector('#fetchChartData');
+	this.DOM.buildChartPayload = document.querySelector('#buildChartPayload');
 	this.DOM.postChartData = document.querySelector('#postChartData');
 	this.DOM.resetDataEditor = document.querySelector('#resetDataEditor');
 	this.DOM.rawDataWrapper = document.querySelector('#rawDataWrapper');
@@ -321,8 +345,27 @@ function bindListeners() {
 
 	});
 
+	this.DOM.buildChartPayload.addEventListener('click', () => {
+		this.DOM.fetchChartData.classList.add('hidden');
+		console.log('mp-tweaks: catch-request');
+		const warningMessage = setTimeout(() => {
+			if (!Array.from(this.DOM.fetchChartData.classList).includes('hidden')) {
+				this.DOM.contextError.classList.remove('hidden');
+			} else {
+				this.DOM.contextError.classList.add('hidden');
+			}
+		}, 5000);
+		messageWorker('catch-fetch', { target: "request" }).then((result) => {
+			// result is an object with the data from the page
+			clearTimeout(warningMessage);
+			console.log('mp-tweaks: caught-request', result);
+		}
+		);
+	});
+
 	//GET CHART DATA
 	this.DOM.fetchChartData.addEventListener('click', () => {
+		this.DOM.buildChartPayload.classList.add('hidden');
 		console.log('mp-tweaks: catch-fetch');
 		const warningMessage = setTimeout(() => {
 			if (!Array.from(this.DOM.fetchChartData.classList).includes('hidden')) {
@@ -353,7 +396,7 @@ function bindListeners() {
 
 		if (isValidJSON) {
 			const alteredData = JSON.parse(this.DOM.rawDataTextField.value);
-			messageWorker('draw-chart', { ...alteredData, target: "response"});
+			messageWorker('draw-chart', { ...alteredData, target: "response" });
 		}
 	});
 
@@ -373,6 +416,7 @@ function bindListeners() {
 	//RESET DATA EDITOR
 	this.DOM.resetDataEditor.addEventListener('click', () => {
 		this.DOM.fetchChartData.classList.remove('hidden');
+		this.DOM.buildChartPayload.classList.remove('hidden');
 		this.DOM.postChartData.classList.add('hidden');
 		this.DOM.resetDataEditor.classList.add('hidden');
 		this.DOM.rawDataWrapper.classList.add('hidden');
