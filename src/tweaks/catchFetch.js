@@ -54,7 +54,7 @@ var unregister = fetchInterceptor.register({
 	},
 
 	request: function (url, config) {
-		console.log('mp-tweaks: checking fetch response');
+		console.log('mp-tweaks: checking fetch request');
 		if (isAHit(url) && window.CATCH_FETCH_INTENT === 'request') {
 			console.log('mp-tweaks: hit!');
 			try {

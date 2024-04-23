@@ -259,7 +259,7 @@ function cacheDOM() {
 
 	//inputs
 	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
-	this.DOM.sessionReplayToken = document.querySelector('#EZTrackToken');
+	this.DOM.sessionReplayToken = document.querySelector('#sessionReplayToken');
 
 	//error messages
 	this.DOM.contextError = document.querySelector('#contextError');
@@ -432,6 +432,7 @@ function bindListeners() {
 		this.saveJSON(chartData, `data-${chartData?.computed_at}` || "data");
 	});
 
+	//EZTRACK
 	this.DOM.startEZTrack.addEventListener('click', () => {
 		const token = this.DOM.EZTrackToken.value;
 		if (!token) alert('token required');
@@ -442,6 +443,19 @@ function bindListeners() {
 	this.DOM.stopEZTrack.addEventListener('click', () => {
 		this.DOM.EZTrackStatus.textContent = `DISABLED`;
 		messageWorker('stop-eztrack');
+	});
+
+	//SESSION REPLAY
+	this.DOM.startReplay.addEventListener('click', () => {
+		const token = this.DOM.sessionReplayToken.value;
+		if (!token) alert('token required');
+		this.DOM.sessionReplayStatus.textContent = `ENABLED`;
+		messageWorker('start-replay', { token });
+	});
+
+	this.DOM.stopReplay.addEventListener('click', () => {
+		this.DOM.sessionReplayStatus.textContent = `DISABLED`;
+		messageWorker('stop-replay');
 	});
 }
 

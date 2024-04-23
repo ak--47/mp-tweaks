@@ -66,6 +66,7 @@ chrome.runtime.onInstalled.addListener(() => { console.log('mp-tweaks: Extension
 //page load
 chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 	if (changeInfo.status === 'complete') {
+
 		// mixpanel tweaks
 		if (tab.url.includes('mixpanel.com') && (tab.url.includes('project') || tab.url.includes('report'))) {
 			console.log('mp-tweaks: Mixpanel page loaded');
@@ -94,7 +95,13 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 		}
 
 		// session replay
-		//todo
+		if (tab.url.includes('http')) {
+			if (STORAGE.sessionReplay.enabled) {
+				console.log('mp-tweaks: starting session replay');
+				startSessionReplay(STORAGE.sessionReplay.token);
+				runScript('/src/tweaks/cautionIcon.js');
+			}
+		}
 
 	}
 });
@@ -173,6 +180,22 @@ async function handleRequest(request) {
 
 		case 'stop-eztrack':
 			STORAGE.EZTrack.enabled = false;
+			result = false;
+			await setStorage(STORAGE);
+			await runScript(reload);
+			break;
+
+		case 'start-replay':
+			STORAGE.sessionReplay.enabled = true;
+			if (request?.data?.token) {
+				STORAGE.sessionReplay.token = request.data.token;
+				await setStorage(STORAGE);
+			}
+			if (STORAGE.sessionReplay.token) await startSessionReplay(STORAGE.sessionReplay.token);
+			break;
+
+		case 'stop-replay':
+			STORAGE.sessionReplay.enabled = false;
 			result = false;
 			await setStorage(STORAGE);
 			await runScript(reload);
@@ -297,6 +320,30 @@ function ezTrackInit(token, opts = {}) {
 	const intervalId = setInterval(tryInit, 1000);
 }
 
+function sessionReplayInit(token, opts = {}) {
+	let attempts = 0;
+	//broken
+	let lib;
+	lib = opts.lib || chrome.runtime.getURL('/src/lib/mixpanel.dev.js');
+	
+	function tryInit() {
+		if (window.mixpanel_with_session_replay) {
+			clearInterval(intervalId); // Clear the interval once mpEZTrack is found
+			mixpanel_with_session_replay(token, lib, 'https://express-proxy-lmozz6xkha-uc.a.run.app');
+		} else {
+			attempts++;
+			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}`);
+			if (attempts > 15) {
+				clearInterval(intervalId);
+				console.log('mp-tweaks: sessionReplay not found');
+			}
+
+		}
+	}
+
+	const intervalId = setInterval(tryInit, 1000);
+}
+
 function reload() {
 	window.location.reload();
 }
@@ -305,6 +352,14 @@ async function startEzTrack(token) {
 	const library = await runScript("./src/lib/eztrack.min.js", [], { world: "ISOLATED" });
 	const init = await runScript(ezTrackInit, [token], { world: "ISOLATED" });
 	return [library, init];
+}
+
+//todo: session replay bundle
+async function startSessionReplay(token) {
+	const library = await runScript("./src/lib/replay.js", [], { world: "ISOLATED" });
+	const init = await runScript(sessionReplayInit, [token, { lib: chrome.runtime.getURL('/src/lib/mixpanel.dev.js') }], { world: "ISOLATED" });
+	return [library, init];
+
 }
 
 async function makeProject() {

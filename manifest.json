@@ -31,7 +31,7 @@
 			]
 		},
 		{
-			"resources": ["src/lib/eztrack.min.js"],
+			"resources": ["src/lib/eztrack.min.js", "src/lib/replay.js", "src/lib/mixpanel.dev.min.js", "src/lib/mixpanel.dev.js"],
 			"matches": ["*://*/*"]
 		}
 	],
