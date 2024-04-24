@@ -16,6 +16,9 @@ body {
 	margin-bottom: 4px;
 }
 
+.remove {
+    color: var(--secondary) !important;
+}
 
 #app {
     padding: 5px;
@@ -84,9 +87,7 @@ div#loader svg {
     
 }
 
-#removeAll {
-    color: var(--secondary);
-}
+
 
 
 .small {

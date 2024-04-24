@@ -22,6 +22,7 @@ const STORAGE_MODEL = {
 	sessionReplay: { token: "", enabled: false, tabId: 0 },
 	EZTrack: { token: "", enabled: false, tabId: 0 },
 	verbose: true,
+	modHeaders: { headers: [], enabled: false },
 	last_updated: Date.now()
 };
 
@@ -52,6 +53,7 @@ async function init() {
 }
 
 init().then(() => { console.log("mp-tweaks: worker initialized"); });
+
 
 
 /*
@@ -100,6 +102,8 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 		}
 
 	}
+
+
 });
 
 // messages from extension
@@ -212,6 +216,23 @@ async function handleRequest(request) {
 			await runScript(reload);
 			break;
 
+		case 'mod-headers':
+			const headers = request.data.headers;
+			STORAGE.modHeaders.headers = headers;
+			STORAGE.modHeaders.enabled = true;
+			await setStorage(STORAGE);
+			result = updateHeaders(headers);
+			await runScript(reload);
+			break;
+
+		case 'reset-headers':
+			STORAGE.modHeaders.headers = [];
+			STORAGE.modHeaders.enabled = false;
+			await setStorage(STORAGE);
+			result = removeHeaders();
+			await runScript(reload);
+			break;
+
 		default:
 			console.error("mp-tweaks: unknown action", request);
 			result = "Unknown action";
@@ -219,6 +240,42 @@ async function handleRequest(request) {
 	return result;
 }
 
+
+function updateHeaders(headers = [{ "foo": "bar" }]) {
+	const requestHeaders = headers.map((o) => {
+		return {
+			header: Object.keys(o)[0],
+			operation: "set",
+			value: Object.values(o)[0]
+		};
+	});
+
+	const update = chrome.declarativeNetRequest.updateDynamicRules({
+		removeRuleIds: [1],  // Clear the previous rule if it exists
+		addRules: [{
+			id: 1,
+			priority: 1,
+			action: {
+				type: "modifyHeaders",
+				requestHeaders
+			},
+			condition: {
+				urlFilter: "*",  // This wildcard matches all URLs
+				resourceTypes: ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
+			}
+		}]
+	});
+
+	return update;
+}
+
+function removeHeaders() {
+	const update = chrome.declarativeNetRequest.updateDynamicRules({
+		removeRuleIds: [1],  // Clear the previous rule if it exists
+	});
+
+	return update;
+}
 
 async function runScript(funcOrPath, args = [], opts, target) {
 	try {

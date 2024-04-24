@@ -25,6 +25,10 @@ export type ChromeStorage = {
 	};
 	verbose: boolean;
 	last_updated?: number;
+	modHeaders: {
+		headers: Object[]
+		enabled: boolean;
+	}
   };
   
 

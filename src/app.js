@@ -66,17 +66,24 @@ async function getCurrentTab() {
 }
 
 async function fetchCSV(url) {
-	let response = await fetch(url);
-	let text = await response.text();
+	try {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 3000);
 
-	let parseData = Papa.parse(text, {
-		header: true
-	}).data;
+		const response = await fetch(url, { signal: controller.signal });
+		const text = await response.text();
+		clearTimeout(timeout);
 
+		let parseData = Papa.parse(text, {
+			header: true
+		}).data;
 
-	this.buttonData = parseData;
-	return parseData;
-
+		this.buttonData = parseData;
+		return parseData;
+	} catch (e) {
+		// Handle fetch errors (including abort)
+		return [{ label: "QTS", flag: 'query_time_sampling' }];
+	}
 }
 
 async function messageWorker(action, data) {
@@ -141,6 +148,10 @@ function listenForWorker() {
 				APP.getStorage().then(() => {
 					APP.loadInterface();
 				});
+				break;
+			case "reset-headers":
+				break;
+			case "mod-headers":
 				break;
 			default:
 				console.log("mp-tweaks: unknown action", message.action);
@@ -273,10 +284,18 @@ function cacheDOM() {
 	this.DOM.sessionReplayLabel = document.querySelector('#sessionReplayLabel');
 	this.DOM.sessionReplayStatus = document.querySelector('#sessionReplayLabel b');
 
+	//headers
+	this.DOM.headerKeys = document.querySelectorAll('.headerKey');
+	this.DOM.headerValues = document.querySelectorAll('.headerValue');
+	this.DOM.saveHeaders = document.querySelector('#saveHeaders');
+	this.DOM.clearHeaders = document.querySelector('#clearHeaders');
+	this.DOM.modHeaderLabel = document.querySelector('#modHeaderLabel');
+	this.DOM.modHeaderStatus = document.querySelector('#modHeaderLabel b');
+
 }
 
 function loadInterface() {
-	const { persistScripts, whoami, EZTrack, sessionReplay } = STORAGE;
+	const { persistScripts, whoami, EZTrack, sessionReplay, modHeaders } = STORAGE;
 
 	//load toggle states
 	APP.setCheckbox(persistScripts);
@@ -304,6 +323,14 @@ function loadInterface() {
 	if (sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `ENABLED (tab #${STORAGE?.sessionReplay?.tabId || ""})`;
 	if (!sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `DISABLED`;
 
+	//mod header
+	if (modHeaders.enabled) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+	else this.DOM.modHeaderStatus.textContent = `DISABLED`;
+	this.DOM.modHeaderLabel.classList.remove('hidden');
+	modHeaders.headers.forEach((header, index) => {
+		this.DOM.headerKeys[index].value = Object.keys(header)[0];
+		this.DOM.headerValues[index].value = Object.values(header)[0];
+	});
 
 }
 
@@ -440,7 +467,7 @@ function bindListeners() {
 			return;
 		}
 		const tabId = await captureCurrentTabId();
-		this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${tabId?.toString()})`;		
+		this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${tabId?.toString()})`;
 		messageWorker('start-eztrack', { token, tabId });
 	});
 
@@ -464,6 +491,28 @@ function bindListeners() {
 	this.DOM.stopReplay.addEventListener('click', () => {
 		this.DOM.sessionReplayStatus.textContent = `DISABLED`;
 		messageWorker('stop-replay');
+	});
+
+	// MOD HEADER
+	this.DOM.saveHeaders.addEventListener('click', () => {
+		const data = [];
+		this.DOM.headerKeys.forEach((key, index) => {
+			const value = this.DOM.headerValues[index].value.trim();
+			if (key.value.trim() !== '' && value !== '') {
+				data.push({ [key.value]: value });
+			}
+		});
+		this.DOM.modHeaderStatus.textContent = `ENABLED`;
+		this.DOM.modHeaderLabel.classList.remove('hidden');
+		messageWorker('mod-headers', { headers: data });
+	});
+
+	this.DOM.clearHeaders.addEventListener('click', () => {
+		this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder'));
+		this.DOM.headerValues.forEach(node => node.value = "");
+		this.DOM.modHeaderStatus.textContent = `DISABLED`;
+		this.DOM.modHeaderLabel.classList.remove('hidden');
+		messageWorker('reset-headers');
 	});
 }
 
