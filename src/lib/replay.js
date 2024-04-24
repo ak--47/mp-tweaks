@@ -1,5 +1,7 @@
+console.log('mp-tweaks: replay.js loaded');
 function mixpanel_with_session_replay(project_token, lib_url, proxy_url) {
-	console.log('mp-tweaks: starting session replay');
+	if (window.SESSION_REPLAY_ACTIVE) return;
+	console.log('mp-tweaks: replay.js ran');
 	// VARS
 	const MIXPANEL_TOKEN = project_token || `7c02ad22ae575ab4e15cdd052cd730fb`;
 	const MIXPANEL_CUSTOM_LIB_URL = lib_url || `https://mixpanel.com/libs/mixpanel.dev.min.js`;
@@ -29,11 +31,11 @@ function mixpanel_with_session_replay(project_token, lib_url, proxy_url) {
 			const name = generateName();
 			const welcome = 'mixpanel loaded; your id is\n\n ---------------- \n\n ' + name + '\n\n ---------------- \n';
 			console.log(welcome);
-			mixpanel.people.set_once({ "$name": name });
+			mixpanel.people.set_once({ "$name": name, "$email": document?.location?.host?.replace('www.', '') });
 			mixpanel.identify(name);
 			mixpanel.track('page view');
 			eventEmitter();
-			openInNewTab(name);
+			// openInNewTab(name);
 		}
 	});
 

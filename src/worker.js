@@ -87,7 +87,7 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 
 		// ezTrack
 		if (tab.url.includes('http')) {
-			if (STORAGE.EZTrack.enabled) {
+			if (STORAGE?.EZTrack?.enabled) {
 				console.log('mp-tweaks: starting ezTrack');
 				startEzTrack(STORAGE.EZTrack.token);
 				runScript('/src/tweaks/cautionIcon.js');
@@ -96,7 +96,7 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 
 		// session replay
 		if (tab.url.includes('http')) {
-			if (STORAGE.sessionReplay.enabled) {
+			if (STORAGE?.sessionReplay?.enabled) {
 				console.log('mp-tweaks: starting session replay');
 				startSessionReplay(STORAGE.sessionReplay.token);
 				runScript('/src/tweaks/cautionIcon.js');
@@ -221,10 +221,10 @@ async function runScript(funcOrPath, args = [], opts, target) {
 		return result;
 	}
 	else if (typeof funcOrPath === 'string') {
-		const result = chrome.scripting.executeScript({
-			target: { tabId: target.id },
-			files: [funcOrPath]
-		});
+		let payload = { target: { tabId: target.id }, files: [funcOrPath] };
+		if (!opts) opts = { world: 'MAIN' };
+		if (opts) payload = { ...opts, ...payload };
+		const result = chrome.scripting.executeScript(payload);
 		return result;
 	}
 	else {
@@ -322,26 +322,30 @@ function ezTrackInit(token, opts = {}) {
 
 function sessionReplayInit(token, opts = {}) {
 	let attempts = 0;
-	//broken
-	let lib;
-	lib = opts.lib || chrome.runtime.getURL('/src/lib/mixpanel.dev.js');
-	
+	let intervalId;
+	const lib = opts.lib || chrome.runtime.getURL('/src/lib/mixpanel.dev.min.js');
+	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
+
 	function tryInit() {
-		if (window.mixpanel_with_session_replay) {
-			clearInterval(intervalId); // Clear the interval once mpEZTrack is found
-			mixpanel_with_session_replay(token, lib, 'https://express-proxy-lmozz6xkha-uc.a.run.app');
+		// @ts-ignore
+		if (window.mixpanel_with_session_replay && !window.SESSION_REPLAY_ACTIVE) {
+			console.log('mp-tweaks: turning on session replay');
+			clearInterval(intervalId); 			
+			mixpanel_with_session_replay(token, lib, proxy); 
+			window.SESSION_REPLAY_ACTIVE = true; 
 		} else {
 			attempts++;
 			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}`);
 			if (attempts > 15) {
 				clearInterval(intervalId);
-				console.log('mp-tweaks: sessionReplay not found');
+				console.log('mp-tweaks: session replay not found');
 			}
 
 		}
 	}
 
-	const intervalId = setInterval(tryInit, 1000);
+	intervalId = setInterval(tryInit, 1000);
+
 }
 
 function reload() {
@@ -354,10 +358,10 @@ async function startEzTrack(token) {
 	return [library, init];
 }
 
-//todo: session replay bundle
 async function startSessionReplay(token) {
-	const library = await runScript("./src/lib/replay.js", [], { world: "ISOLATED" });
-	const init = await runScript(sessionReplayInit, [token, { lib: chrome.runtime.getURL('/src/lib/mixpanel.dev.js') }], { world: "ISOLATED" });
+	const library = await runScript("./src/lib/replay.js", [], { world: "MAIN" });
+	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app'
+	const init = await runScript(sessionReplayInit, [token, { lib: chrome.runtime.getURL('/src/lib/mixpanel.dev.min.js'), proxy }], { world: "MAIN" });
 	return [library, init];
 
 }
