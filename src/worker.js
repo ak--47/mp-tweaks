@@ -19,8 +19,8 @@ const STORAGE_MODEL = {
 	serviceAcct: { user: '', pass: '' },
 	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
 	featureFlags: [],
-	sessionReplay: { token: "", enabled: false },
-	EZTrack: { token: "", enabled: false },
+	sessionReplay: { token: "", enabled: false, tabId: 0 },
+	EZTrack: { token: "", enabled: false, tabId: 0 },
 	verbose: true,
 	last_updated: Date.now()
 };
@@ -86,21 +86,17 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 		}
 
 		// ezTrack
-		if (tab.url.includes('http')) {
-			if (STORAGE?.EZTrack?.enabled) {
-				console.log('mp-tweaks: starting ezTrack');
-				startEzTrack(STORAGE.EZTrack.token);
-				runScript('/src/tweaks/cautionIcon.js');
-			}
+		if (STORAGE?.EZTrack?.enabled && tabId === STORAGE.EZTrack.tabId) {
+			console.log('mp-tweaks: starting ezTrack in tab ' + tabId);
+			startEzTrack(STORAGE.EZTrack.token, tabId);
+
 		}
 
 		// session replay
-		if (tab.url.includes('http')) {
-			if (STORAGE?.sessionReplay?.enabled) {
-				console.log('mp-tweaks: starting session replay');
-				startSessionReplay(STORAGE.sessionReplay.token);
-				runScript('/src/tweaks/cautionIcon.js');
-			}
+		if (STORAGE?.sessionReplay?.enabled && tabId === STORAGE.sessionReplay.tabId) {
+			console.log('mp-tweaks: starting session replay in tab ' + tabId);
+			startSessionReplay(STORAGE.sessionReplay.token, tabId);
+
 		}
 
 	}
@@ -123,6 +119,18 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 	// Return true to keep the message channel open for the asynchronous response
 	return true;
 });
+
+chrome.tabs.onRemoved.addListener(function (tabId, removeInfo) {
+	if (tabId === STORAGE.EZTrack.tabId) {
+		STORAGE.EZTrack.enabled = false;
+		setStorage(STORAGE);
+	}
+	if (tabId === STORAGE.sessionReplay.tabId) {
+		STORAGE.sessionReplay.enabled = false;
+		setStorage(STORAGE);
+	}
+});
+
 
 /*
 ----
@@ -170,12 +178,13 @@ async function handleRequest(request) {
 
 		case 'start-eztrack':
 			STORAGE.EZTrack.enabled = true;
-			if (request?.data?.token) {
+			if (request?.data?.token && request?.data?.tabId) {
 				STORAGE.EZTrack.token = request.data.token;
+				STORAGE.EZTrack.tabId = request.data.tabId;
 				await setStorage(STORAGE);
 			}
-			const token = STORAGE.EZTrack.token;
-			if (token) result = await startEzTrack(token);
+			var { token, tabId } = STORAGE.EZTrack;
+			if (token && tabId) result = await startEzTrack(token, tabId);
 			break;
 
 		case 'stop-eztrack':
@@ -187,11 +196,13 @@ async function handleRequest(request) {
 
 		case 'start-replay':
 			STORAGE.sessionReplay.enabled = true;
-			if (request?.data?.token) {
+			if (request?.data?.token && request?.data?.tabId) {
 				STORAGE.sessionReplay.token = request.data.token;
+				STORAGE.sessionReplay.tabId = request.data.tabId;
 				await setStorage(STORAGE);
 			}
-			if (STORAGE.sessionReplay.token) await startSessionReplay(STORAGE.sessionReplay.token);
+			var { token, tabId } = STORAGE.sessionReplay;
+			if (token && tabId) result = await startSessionReplay(token, tabId);
 			break;
 
 		case 'stop-replay':
@@ -210,25 +221,33 @@ async function handleRequest(request) {
 
 
 async function runScript(funcOrPath, args = [], opts, target) {
-	if (!target) target = await getCurrentTab();
-	if (typeof funcOrPath === 'function') {
-		let payload = { target: { tabId: target.id }, func: funcOrPath };
-		if (args) payload.args = args;
-		if (!opts) opts = { world: 'MAIN' };
-		if (opts) payload = { ...opts, ...payload };
+	try {
+		if (!target) target = await getCurrentTab();
+		if (typeof funcOrPath === 'function') {
+			let payload = { target: { tabId: target.id }, func: funcOrPath };
+			if (args) payload.args = args;
+			if (!opts) opts = { world: 'MAIN' };
+			if (opts) payload = { ...opts, ...payload };
 
-		const result = chrome.scripting.executeScript(payload);
-		return result;
+			const result = chrome.scripting.executeScript(payload);
+			return result;
+		}
+		else if (typeof funcOrPath === 'string') {
+			let payload = { target: { tabId: target.id }, files: [funcOrPath] };
+			if (!opts) opts = { world: 'MAIN' };
+			if (opts) payload = { ...opts, ...payload };
+			const result = chrome.scripting.executeScript(payload);
+			return result;
+		}
+		else {
+			throw new Error('Invalid function or path');
+		}
 	}
-	else if (typeof funcOrPath === 'string') {
-		let payload = { target: { tabId: target.id }, files: [funcOrPath] };
-		if (!opts) opts = { world: 'MAIN' };
-		if (opts) payload = { ...opts, ...payload };
-		const result = chrome.scripting.executeScript(payload);
-		return result;
-	}
-	else {
-		throw new Error('Invalid function or path');
+	catch (e) {
+		console.log('mp-tweaks: error running script:', "funcOrPath:", funcOrPath, "args:", args, "opts:", opts, "target:", target);
+		console.error(e);
+		return false;
+
 	}
 }
 
@@ -293,6 +312,8 @@ function catchFetchWrapper(data, url) {
 
 }
 
+
+
 function echo(data, key) {
 	console.log(`mp-tweaks: echoing data at key ${key}...`, data);
 	window[key] = data;
@@ -330,9 +351,9 @@ function sessionReplayInit(token, opts = {}) {
 		// @ts-ignore
 		if (window.mixpanel_with_session_replay && !window.SESSION_REPLAY_ACTIVE) {
 			console.log('mp-tweaks: turning on session replay');
-			clearInterval(intervalId); 			
-			mixpanel_with_session_replay(token, lib, proxy); 
-			window.SESSION_REPLAY_ACTIVE = true; 
+			clearInterval(intervalId);
+			mixpanel_with_session_replay(token, lib, proxy);
+			window.SESSION_REPLAY_ACTIVE = true;
 		} else {
 			attempts++;
 			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}`);
@@ -352,17 +373,19 @@ function reload() {
 	window.location.reload();
 }
 
-async function startEzTrack(token) {
-	const library = await runScript("./src/lib/eztrack.min.js", [], { world: "ISOLATED" });
-	const init = await runScript(ezTrackInit, [token], { world: "ISOLATED" });
-	return [library, init];
+async function startEzTrack(token, tabId) {
+	const library = await runScript("./src/lib/eztrack.min.js", [], { world: "ISOLATED" }, { id: tabId });
+	const init = await runScript(ezTrackInit, [token], { world: "ISOLATED" }, { id: tabId });
+	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
+	return [library, init, caution];
 }
 
-async function startSessionReplay(token) {
-	const library = await runScript("./src/lib/replay.js", [], { world: "MAIN" });
-	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app'
-	const init = await runScript(sessionReplayInit, [token, { lib: chrome.runtime.getURL('/src/lib/mixpanel.dev.min.js'), proxy }], { world: "MAIN" });
-	return [library, init];
+async function startSessionReplay(token, tabId) {
+	const library = await runScript("./src/lib/replay.js", [], { world: "MAIN" }, { id: tabId });
+	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
+	const init = await runScript(sessionReplayInit, [token, { lib: chrome.runtime.getURL('/src/lib/mixpanel.dev.min.js'), proxy }], { world: "MAIN" }, { id: tabId });
+	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
+	return [library, init, caution];
 
 }
 

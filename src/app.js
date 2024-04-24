@@ -295,13 +295,13 @@ function loadInterface() {
 	//EZTrack labels + token
 	if (EZTrack.token) this.DOM.EZTrackToken.value = EZTrack.token;
 	this.DOM.EZTrackLabel.classList.remove('hidden');
-	if (EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `ENABLED`;
+	if (EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${STORAGE?.EZTrack?.tabId || ""})`;
 	if (!EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `DISABLED`;
 
 	//session replay labels + token
 	if (sessionReplay.token) this.DOM.sessionReplayToken.value = sessionReplay.token;
 	this.DOM.sessionReplayLabel.classList.remove('hidden');
-	if (sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `ENABLED`;
+	if (sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `ENABLED (tab #${STORAGE?.sessionReplay?.tabId || ""})`;
 	if (!sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `DISABLED`;
 
 
@@ -433,11 +433,15 @@ function bindListeners() {
 	});
 
 	//EZTRACK
-	this.DOM.startEZTrack.addEventListener('click', () => {
+	this.DOM.startEZTrack.addEventListener('click', async () => {
 		const token = this.DOM.EZTrackToken.value;
-		if (!token) alert('token required');
-		this.DOM.EZTrackStatus.textContent = `ENABLED`;
-		messageWorker('start-eztrack', { token });
+		if (!token) {
+			alert('token required');
+			return;
+		}
+		const tabId = await captureCurrentTabId();
+		this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${tabId?.toString()})`;		
+		messageWorker('start-eztrack', { token, tabId });
 	});
 
 	this.DOM.stopEZTrack.addEventListener('click', () => {
@@ -446,11 +450,15 @@ function bindListeners() {
 	});
 
 	//SESSION REPLAY
-	this.DOM.startReplay.addEventListener('click', () => {
+	this.DOM.startReplay.addEventListener('click', async () => {
 		const token = this.DOM.sessionReplayToken.value;
-		if (!token) alert('token required');
-		this.DOM.sessionReplayStatus.textContent = `ENABLED`;
-		messageWorker('start-replay', { token });
+		if (!token) {
+			alert('token required');
+			return;
+		}
+		const tabId = await captureCurrentTabId();
+		this.DOM.sessionReplayStatus.textContent = `ENABLED (tab #${tabId?.toString()})`;
+		messageWorker('start-replay', { token, tabId });
 	});
 
 	this.DOM.stopReplay.addEventListener('click', () => {
@@ -577,3 +585,14 @@ function saveJSON(chartData = {}, fileName = `no fileName`) {
 }
 
 
+async function captureCurrentTabId() {
+	return new Promise((resolve, reject) => {
+		chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+			if (tabs.length && tabs[0].id) {
+				resolve(tabs[0].id);
+			} else {
+				reject(new Error('No active tab found'));
+			}
+		});
+	});
+}
