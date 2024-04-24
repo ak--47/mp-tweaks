@@ -32,7 +32,7 @@ async function analytics() {
 	}
 
 
-	mixpanel.init("3e97f649a88698acc335a5d64a28ec72", {
+	mixpanel.init("99526f575a41223fcbadd9efdd280c7e", {
 		persistence: 'localStorage',
 		api_host: "https://api.mixpanel.com",
 		window: {

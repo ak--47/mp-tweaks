@@ -345,7 +345,7 @@ function bindListeners() {
 
 	this.DOM.removeAll.addEventListener('click', async function () {
 		messageWorker('remove-flags');
-		mixpanel.track('Remove All Flags');
+		
 	});
 
 	//CREATE PROJECT
@@ -526,7 +526,6 @@ function buildButtons(object) {
 	newButton.appendChild(document.createTextNode(name.toUpperCase()));
 	newButton.onclick = async () => {
 		messageWorker('add-flag', { flag });
-		mixpanel.track(`${name}`);
 	};
 	this.DOM.buttonWrapper.appendChild(newButton);
 
@@ -586,7 +585,7 @@ function filterObj(hash, test_function, keysOrValues = "value") {
 };
 
 function analytics() {
-	mixpanel.init("3e97f649a88698acc335a5d64a28ec72", {
+	mixpanel.init("99526f575a41223fcbadd9efdd280c7e", {
 		persistence: 'localStorage',
 		api_host: "https://api.mixpanel.com",
 		window: {
@@ -612,6 +611,20 @@ function analytics() {
 			}
 			mixpanel.track('open extension');
 			mixpanel.people.increment('# of opens');
+
+			// simplest possible UI button tracking
+			const analyticsManifest = Object.keys(APP.DOM).map(key => ({
+				key: key,
+				value: APP.DOM[key]
+			}));
+
+			for (const node of analyticsManifest) {
+				if (node.value.tagName === 'BUTTON') {
+					node.value.addEventListener('click', () => {
+						mixpanel.track(node.key);
+					});
+				}
+			}
 		},
 		inapp_protocol: 'https://',
 		secure_cookie: true
