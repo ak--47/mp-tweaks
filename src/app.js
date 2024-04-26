@@ -65,6 +65,23 @@ async function getCurrentTab() {
 	});
 }
 
+function openNewTab(url, inBackground = false) {
+    return new Promise((resolve, reject) => {
+        try {
+            chrome.tabs.create({ url: url, active: !inBackground }, function(tab) {
+                resolve(tab);
+            });
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+function sleep(ms) {
+	return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+
 async function fetchCSV(url) {
 	try {
 		const controller = new AbortController();
@@ -358,8 +375,10 @@ function bindListeners() {
 			const newProject = await messageWorker('make-project');
 			const { api_secret = "", id = "", name = "", token = "", url = "" } = newProject;
 			const display = `Project Name: ${name}\nProject ID: ${id}\nAPI Secret: ${api_secret}\nAPI Token: ${token}\nProject URL: ${url}`;
-			this.saveJSON(newProject, `project-${name}`);
 			this.DOM.projectDetails.value = display;
+			this.saveJSON(newProject, `project-${name}`);			
+			// await sleep(5000)
+			openNewTab(url);
 
 		}
 		catch (e) {

@@ -85,6 +85,15 @@ function mixpanel_with_session_replay(project_token, lib_url, proxy_url) {
 
 	}
 
+	function openInNewTab(user, href = "https://mixpanel.com/project/3276012/view/3782804/app/profile#distinct_id=") {
+		setTimeout(() => {
+			Object.assign(document.createElement('a'), {
+				target: '_blank',
+				rel: 'noopener noreferrer',
+				href: href + user,
+			}).click();
+		}, 3000);
+	}
 
 	function eventEmitter(max = 100) {
 		let eventCount = 0; // Counter to keep track of the number of events emitted

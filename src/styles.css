@@ -12,6 +12,10 @@ body {
 	
 }
 
+.off {
+	display: none !important;
+}
+
 #modHeader .controls input {
 	margin-bottom: 4px;
 }

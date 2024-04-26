@@ -52,7 +52,11 @@ async function init() {
 	return STORAGE;
 }
 
-init().then(() => { console.log("mp-tweaks: worker initialized"); });
+init().then(() => { 
+
+	console.log("mp-tweaks: worker initialized");
+	return true;
+});
 
 
 
@@ -63,9 +67,12 @@ HOOKS
 */
 
 //install
-chrome.runtime.onInstalled.addListener(() => { console.log('mp-tweaks: Extension Installed'); });
+chrome.runtime.onInstalled.addListener(() => {
+	console.log('mp-tweaks: Extension Installed');
+	return true;
+});
 
-//page load
+//open tabs
 chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 	if (changeInfo.status === 'complete') {
 
@@ -105,6 +112,17 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 
 
 });
+// closed tabs
+chrome.tabs.onRemoved.addListener(function (tabId, removeInfo) {
+	if (tabId === STORAGE?.EZTrack?.tabId) {
+		STORAGE.EZTrack.enabled = false;
+		setStorage(STORAGE);
+	}
+	if (tabId === STORAGE?.sessionReplay?.tabId) {
+		STORAGE.sessionReplay.enabled = false;
+		setStorage(STORAGE);
+	}
+});
 
 // messages from extension
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
@@ -124,16 +142,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 	return true;
 });
 
-chrome.tabs.onRemoved.addListener(function (tabId, removeInfo) {
-	if (tabId === STORAGE.EZTrack.tabId) {
-		STORAGE.EZTrack.enabled = false;
-		setStorage(STORAGE);
-	}
-	if (tabId === STORAGE.sessionReplay.tabId) {
-		STORAGE.sessionReplay.enabled = false;
-		setStorage(STORAGE);
-	}
-});
+
 
 
 /*
@@ -165,6 +174,8 @@ async function handleRequest(request) {
 
 		case 'make-project':
 			result = await makeProject();
+			// need to do tab opening in popup
+			// if (result?.url) await openNewTab(result.url, true);
 			break;
 
 		case 'catch-fetch':
@@ -375,6 +386,35 @@ function echo(data, key) {
 	console.log(`mp-tweaks: echoing data at key ${key}...`, data);
 	window[key] = data;
 }
+function reload() {
+	window.location.reload();
+}
+
+function openNewTab(url, inBackground = false) {
+	return new Promise((resolve, reject) => {
+		try {
+			chrome.tabs.create({ url: url, active: !inBackground }, function (tab) {
+				resolve(tab);
+			});
+		} catch (e) {
+			reject(e);
+		}
+	});
+}
+
+// requires the "notifications" permission
+// ? https://developer.chrome.com/docs/extensions/reference/api/notifications
+// function showNotification() {
+//     chrome.notifications.create({
+//         type: 'basic',
+//         iconUrl: 'icon.png',
+//         title: 'Action Completed',
+//         message: 'A new project has been created. Click to view.',
+//         isClickable: true
+//     }, function(notificationId) {
+//         console.log('Notification shown.');
+//     });
+// }
 
 function ezTrackInit(token, opts = {}) {
 	if (Object.keys(opts).length === 0) opts = { verbose: true, api_host: "https://express-proxy-lmozz6xkha-uc.a.run.app" };
@@ -426,9 +466,7 @@ function sessionReplayInit(token, opts = {}) {
 
 }
 
-function reload() {
-	window.location.reload();
-}
+
 
 async function startEzTrack(token, tabId) {
 	const library = await runScript("./src/lib/eztrack.min.js", [], { world: "ISOLATED" }, { id: tabId });
@@ -486,6 +524,7 @@ async function makeProject() {
 		url: `https://mixpanel.com/project/${id}/app/settings#project/${id}`
 
 	};
+
 	return data;
 }
 
@@ -590,6 +629,10 @@ function haveSameShape(obj1, obj2) {
 	}
 
 	return true;
+}
+
+function sleep(ms) {
+	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /*
