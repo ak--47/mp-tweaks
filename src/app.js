@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.2`;
+const APP_VERSION = `2.21`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 
 const APP = {
@@ -66,15 +66,16 @@ async function getCurrentTab() {
 }
 
 function openNewTab(url, inBackground = false) {
-    return new Promise((resolve, reject) => {
-        try {
-            chrome.tabs.create({ url: url, active: !inBackground }, function(tab) {
-                resolve(tab);
-            });
-        } catch (e) {
-            reject(e);
-        }
-    });
+	return new Promise((resolve, reject) => {
+		try {
+			chrome.tabs.create({ url: url, active: !inBackground }, function (tab) {
+				resolve(tab);
+			});
+		} catch (e) {
+			track('error: openNewTab', { error: e, url, inBackground });
+			reject(e);
+		}
+	});
 }
 
 function sleep(ms) {
@@ -99,6 +100,7 @@ async function fetchCSV(url) {
 		return parseData;
 	} catch (e) {
 		// Handle fetch errors (including abort)
+		track('error: fetchCSV', { error: e });
 		return [{ label: "QTS", flag: 'query_time_sampling' }];
 	}
 }
@@ -114,6 +116,7 @@ async function messageWorker(action, data) {
 		console.log('Response from worker:', response);
 		return response;
 	} catch (error) {
+		track('error: messageWorker', { error });
 		console.error('Error:', error);
 	}
 
@@ -123,6 +126,7 @@ async function getStorage(keys = null) {
 	return new Promise((resolve, reject) => {
 		chrome.storage.sync.get(keys, (result) => {
 			if (chrome.runtime.lastError) {
+				track('error: getStorage', { error: chrome.runtime.lastError });
 				reject(new Error(chrome.runtime.lastError));
 			} else {
 				/** @type {PersistentStorage} */
@@ -138,6 +142,7 @@ async function setStorage(data) {
 	return new Promise((resolve, reject) => {
 		chrome.storage.sync.set(data, () => {
 			if (chrome.runtime.lastError) {
+				track('error: setStorage', { error: chrome.runtime.lastError });
 				reject(new Error(chrome.runtime.lastError));
 			} else {
 				messageWorker('refresh-storage'); // tell the worker to refresh
@@ -170,7 +175,11 @@ function listenForWorker() {
 				break;
 			case "mod-headers":
 				break;
+			case "make-project":
+				// this is handled in the interface
+				break;
 			default:
+				track('error: listenForWorker', { message });
 				console.log("mp-tweaks: unknown action", message.action);
 				break;
 		}
@@ -182,6 +191,7 @@ function sendMessageAsync(payload) {
 	return new Promise((resolve, reject) => {
 		chrome.runtime.sendMessage(payload, (response) => {
 			if (chrome.runtime.lastError) {
+				track('error: sendMessageAsync', { error: chrome.runtime.lastError });
 				reject(new Error(chrome.runtime.lastError.message));
 			} else {
 				resolve(response);
@@ -239,6 +249,7 @@ function setCheckbox(state) {
 		try {
 			APP.DOM[setting].checked = true;
 		} catch (e) {
+			track('error: setCheckbox', { setting, error: e });
 			console.error(`failed to toggle ${setting}`, e);
 		}
 	}
@@ -312,227 +323,241 @@ function cacheDOM() {
 }
 
 function loadInterface() {
-	const { persistScripts, whoami, EZTrack, sessionReplay, modHeaders } = STORAGE;
+	try {
+		const { persistScripts, whoami, EZTrack, sessionReplay, modHeaders } = STORAGE;
 
-	//load toggle states
-	APP.setCheckbox(persistScripts);
+		//load toggle states
+		APP.setCheckbox(persistScripts);
 
-	//org label
-	if (whoami.orgId) {
-		this.DOM.orgLabel.classList.remove('hidden');
-		this.DOM.orgPlaceholder.textContent = `${whoami.orgName} (${whoami.orgId})`;
-		this.DOM.makeProject.disabled = false;
+		//org label
+		if (whoami.orgId) {
+			this.DOM.orgLabel.classList.remove('hidden');
+			this.DOM.orgPlaceholder.textContent = `${whoami.orgName} (${whoami.orgId})`;
+			this.DOM.makeProject.disabled = false;
+		}
+		else {
+			this.DOM.orgLabel.classList.add('hidden');
+			this.DOM.makeProject.disabled = true;
+		}
+
+		//EZTrack labels + token
+		if (EZTrack.token) this.DOM.EZTrackToken.value = EZTrack.token;
+		this.DOM.EZTrackLabel.classList.remove('hidden');
+		if (EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${STORAGE?.EZTrack?.tabId || ""})`;
+		if (!EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `DISABLED`;
+
+		//session replay labels + token
+		if (sessionReplay.token) this.DOM.sessionReplayToken.value = sessionReplay.token;
+		this.DOM.sessionReplayLabel.classList.remove('hidden');
+		if (sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `ENABLED (tab #${STORAGE?.sessionReplay?.tabId || ""})`;
+		if (!sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `DISABLED`;
+
+		//mod header
+		if (modHeaders.enabled) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+		else this.DOM.modHeaderStatus.textContent = `DISABLED`;
+		this.DOM.modHeaderLabel.classList.remove('hidden');
+		modHeaders.headers.forEach((header, index) => {
+			this.DOM.headerKeys[index].value = Object.keys(header)[0];
+			this.DOM.headerValues[index].value = Object.values(header)[0];
+		});
 	}
-	else {
-		this.DOM.orgLabel.classList.add('hidden');
-		this.DOM.makeProject.disabled = true;
+	catch (e) {
+		track('error: loadInterface', { error: e });
+		console.error('mp-tweaks: error loading interface', e);
 	}
-
-	//EZTrack labels + token
-	if (EZTrack.token) this.DOM.EZTrackToken.value = EZTrack.token;
-	this.DOM.EZTrackLabel.classList.remove('hidden');
-	if (EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${STORAGE?.EZTrack?.tabId || ""})`;
-	if (!EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `DISABLED`;
-
-	//session replay labels + token
-	if (sessionReplay.token) this.DOM.sessionReplayToken.value = sessionReplay.token;
-	this.DOM.sessionReplayLabel.classList.remove('hidden');
-	if (sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `ENABLED (tab #${STORAGE?.sessionReplay?.tabId || ""})`;
-	if (!sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `DISABLED`;
-
-	//mod header
-	if (modHeaders.enabled) this.DOM.modHeaderStatus.textContent = `ENABLED`;
-	else this.DOM.modHeaderStatus.textContent = `DISABLED`;
-	this.DOM.modHeaderLabel.classList.remove('hidden');
-	modHeaders.headers.forEach((header, index) => {
-		this.DOM.headerKeys[index].value = Object.keys(header)[0];
-		this.DOM.headerValues[index].value = Object.values(header)[0];
-	});
 
 }
 
 function bindListeners() {
-	//TOGGLES
-	this.DOM.checkboxes.forEach(function (checkbox) {
-		checkbox.addEventListener('click', function (event) {
-			const data = APP.getCheckbox();
-			setStorage({ 'persistScripts': data }).then(() => { });
-		});
-	});
-
-	this.DOM.removeAll.addEventListener('click', async function () {
-		messageWorker('remove-flags');
-		
-	});
-
-	//CREATE PROJECT
-	this.DOM.makeProject.addEventListener('click', async () => {
-		this.DOM.projectDetails.classList.add('hidden');
-		this.DOM.makeProjectSpinner.classList.remove('hidden');
-		this.DOM.makeProject.disabled = true;
-
-		try {
-			const newProject = await messageWorker('make-project');
-			const { api_secret = "", id = "", name = "", token = "", url = "" } = newProject;
-			const display = `Project Name: ${name}\nProject ID: ${id}\nAPI Secret: ${api_secret}\nAPI Token: ${token}\nProject URL: ${url}`;
-			this.DOM.projectDetails.value = display;
-			this.saveJSON(newProject, `project-${name}`);			
-			// await sleep(5000)
-			openNewTab(url);
-
-		}
-		catch (e) {
-			this.DOM.projectDetails.value = `Error!\n${e}`;
-		}
-
-		this.DOM.makeProjectSpinner.classList.add('hidden');
-		this.DOM.projectDetails.classList.remove('hidden');
-		this.DOM.makeProject.disabled = false;
-
-	});
-
-	this.DOM.buildChartPayload.addEventListener('click', () => {
-		this.DOM.fetchChartData.classList.add('hidden');
-		console.log('mp-tweaks: catch-request');
-		const warningMessage = setTimeout(() => {
-			if (!Array.from(this.DOM.fetchChartData.classList).includes('hidden')) {
-				this.DOM.contextError.classList.remove('hidden');
-			} else {
-				this.DOM.contextError.classList.add('hidden');
-			}
-		}, 5000);
-		messageWorker('catch-fetch', { target: "request" }).then((result) => {
-			// result is an object with the data from the page
-			clearTimeout(warningMessage);
-			console.log('mp-tweaks: caught-request', result);
-		}
-		);
-	});
-
-	//GET CHART DATA
-	this.DOM.fetchChartData.addEventListener('click', () => {
-		this.DOM.buildChartPayload.classList.add('hidden');
-		console.log('mp-tweaks: catch-fetch');
-		const warningMessage = setTimeout(() => {
-			if (!Array.from(this.DOM.fetchChartData.classList).includes('hidden')) {
-				this.DOM.contextError.classList.remove('hidden');
-			} else {
-				this.DOM.contextError.classList.add('hidden');
-			}
-		}, 5000);
-		messageWorker('catch-fetch', { target: "response" }).then((result) => {
-			// result is an object with the data from the page
-			clearTimeout(warningMessage);
-			console.log('mp-tweaks: caught-fetch', result);
+	try {
+		//TOGGLES
+		this.DOM.checkboxes.forEach(function (checkbox) {
+			checkbox.addEventListener('click', function (event) {
+				const data = APP.getCheckbox();
+				setStorage({ 'persistScripts': data }).then(() => { });
+			});
 		});
 
-	});
+		this.DOM.removeAll.addEventListener('click', async function () {
+			messageWorker('remove-flags');
 
-	//DRAW CHART DATA
-	this.DOM.postChartData.addEventListener('click', () => {
-		//validate we have JSON
-		let isValidJSON = false;
-		try {
-			JSON.parse(this.DOM.rawDataTextField.value);
+		});
+
+		//CREATE PROJECT
+		this.DOM.makeProject.addEventListener('click', async () => {
+			this.DOM.projectDetails.classList.add('hidden');
+			this.DOM.makeProjectSpinner.classList.remove('hidden');
+			this.DOM.makeProject.disabled = true;
+
+			try {
+				const newProject = await messageWorker('make-project');
+				const { api_secret = "", id = "", name = "", token = "", url = "" } = newProject;
+				const display = `Project Name: ${name}\nProject ID: ${id}\nAPI Secret: ${api_secret}\nAPI Token: ${token}\nProject URL: ${url}`;
+				this.DOM.projectDetails.value = display;
+				this.saveJSON(newProject, `project-${name}`);
+				// await sleep(5000)
+				openNewTab(url);
+
+			}
+			catch (e) {
+				track('error: make-project', { error: e });
+				this.DOM.projectDetails.value = `Error!\n${e}`;
+			}
+
+			this.DOM.makeProjectSpinner.classList.add('hidden');
+			this.DOM.projectDetails.classList.remove('hidden');
+			this.DOM.makeProject.disabled = false;
+
+		});
+
+		this.DOM.buildChartPayload.addEventListener('click', () => {
+			this.DOM.fetchChartData.classList.add('hidden');
+			console.log('mp-tweaks: catch-request');
+			const warningMessage = setTimeout(() => {
+				if (!Array.from(this.DOM.fetchChartData.classList).includes('hidden')) {
+					this.DOM.contextError.classList.remove('hidden');
+				} else {
+					this.DOM.contextError.classList.add('hidden');
+				}
+			}, 5000);
+			messageWorker('catch-fetch', { target: "request" }).then((result) => {
+				// result is an object with the data from the page
+				clearTimeout(warningMessage);
+				console.log('mp-tweaks: caught-request', result);
+			}
+			);
+		});
+
+		//GET CHART DATA
+		this.DOM.fetchChartData.addEventListener('click', () => {
+			this.DOM.buildChartPayload.classList.add('hidden');
+			console.log('mp-tweaks: catch-fetch');
+			const warningMessage = setTimeout(() => {
+				if (!Array.from(this.DOM.fetchChartData.classList).includes('hidden')) {
+					this.DOM.contextError.classList.remove('hidden');
+				} else {
+					this.DOM.contextError.classList.add('hidden');
+				}
+			}, 5000);
+			messageWorker('catch-fetch', { target: "response" }).then((result) => {
+				// result is an object with the data from the page
+				clearTimeout(warningMessage);
+				console.log('mp-tweaks: caught-fetch', result);
+			});
+
+		});
+
+		//DRAW CHART DATA
+		this.DOM.postChartData.addEventListener('click', () => {
+			//validate we have JSON
+			let isValidJSON = false;
+			try {
+				JSON.parse(this.DOM.rawDataTextField.value);
+				this.DOM.jsonError.classList.add('hidden');
+				isValidJSON = true;
+			} catch (e) {
+				this.DOM.jsonError.classList.remove('hidden');
+			}
+
+			if (isValidJSON) {
+				const alteredData = JSON.parse(this.DOM.rawDataTextField.value);
+				messageWorker('draw-chart', { ...alteredData, target: "response" });
+			}
+		});
+
+		//RANDOMIZE
+		this.DOM.randomize.addEventListener('click', () => {
+			try {
+				let currentData = JSON.parse(this.DOM.rawDataTextField.value);
+				let mutatedData = flipIntegers(currentData);
+				this.DOM.rawDataTextField.value = JSON.stringify(mutatedData, null, 2);
+			}
+			catch (e) {
+				console.log('mp-tweaks: error randomizing', e);
+			}
+
+		});
+
+		//RESET DATA EDITOR
+		this.DOM.resetDataEditor.addEventListener('click', () => {
+			this.DOM.fetchChartData.classList.remove('hidden');
+			this.DOM.buildChartPayload.classList.remove('hidden');
+			this.DOM.postChartData.classList.add('hidden');
+			this.DOM.resetDataEditor.classList.add('hidden');
+			this.DOM.rawDataWrapper.classList.add('hidden');
+			this.DOM.randomize.classList.add('hidden');
+			this.DOM.contextError.classList.add('hidden');
 			this.DOM.jsonError.classList.add('hidden');
-			isValidJSON = true;
-		} catch (e) {
-			this.DOM.jsonError.classList.remove('hidden');
-		}
-
-		if (isValidJSON) {
-			const alteredData = JSON.parse(this.DOM.rawDataTextField.value);
-			messageWorker('draw-chart', { ...alteredData, target: "response" });
-		}
-	});
-
-	//RANDOMIZE
-	this.DOM.randomize.addEventListener('click', () => {
-		try {
-			let currentData = JSON.parse(this.DOM.rawDataTextField.value);
-			let mutatedData = flipIntegers(currentData);
-			this.DOM.rawDataTextField.value = JSON.stringify(mutatedData, null, 2);
-		}
-		catch (e) {
-			console.log('mp-tweaks: error randomizing', e);
-		}
-
-	});
-
-	//RESET DATA EDITOR
-	this.DOM.resetDataEditor.addEventListener('click', () => {
-		this.DOM.fetchChartData.classList.remove('hidden');
-		this.DOM.buildChartPayload.classList.remove('hidden');
-		this.DOM.postChartData.classList.add('hidden');
-		this.DOM.resetDataEditor.classList.add('hidden');
-		this.DOM.rawDataWrapper.classList.add('hidden');
-		this.DOM.randomize.classList.add('hidden');
-		this.DOM.contextError.classList.add('hidden');
-		this.DOM.jsonError.classList.add('hidden');
-		this.DOM.saveChartData.classList.add('hidden');
-	});
-
-	//SAVE DATA
-	this.DOM.saveChartData.addEventListener('click', () => {
-		const chartData = JSON.parse(this.DOM.rawDataTextField.value);
-		this.saveJSON(chartData, `data-${chartData?.computed_at}` || "data");
-	});
-
-	//EZTRACK
-	this.DOM.startEZTrack.addEventListener('click', async () => {
-		const token = this.DOM.EZTrackToken.value;
-		if (!token) {
-			alert('token required');
-			return;
-		}
-		const tabId = await captureCurrentTabId();
-		this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${tabId?.toString()})`;
-		messageWorker('start-eztrack', { token, tabId });
-	});
-
-	this.DOM.stopEZTrack.addEventListener('click', () => {
-		this.DOM.EZTrackStatus.textContent = `DISABLED`;
-		messageWorker('stop-eztrack');
-	});
-
-	//SESSION REPLAY
-	this.DOM.startReplay.addEventListener('click', async () => {
-		const token = this.DOM.sessionReplayToken.value;
-		if (!token) {
-			alert('token required');
-			return;
-		}
-		const tabId = await captureCurrentTabId();
-		this.DOM.sessionReplayStatus.textContent = `ENABLED (tab #${tabId?.toString()})`;
-		messageWorker('start-replay', { token, tabId });
-	});
-
-	this.DOM.stopReplay.addEventListener('click', () => {
-		this.DOM.sessionReplayStatus.textContent = `DISABLED`;
-		messageWorker('stop-replay');
-	});
-
-	// MOD HEADER
-	this.DOM.saveHeaders.addEventListener('click', () => {
-		const data = [];
-		this.DOM.headerKeys.forEach((key, index) => {
-			const value = this.DOM.headerValues[index].value.trim();
-			if (key.value.trim() !== '' && value !== '') {
-				data.push({ [key.value]: value });
-			}
+			this.DOM.saveChartData.classList.add('hidden');
 		});
-		this.DOM.modHeaderStatus.textContent = `ENABLED`;
-		this.DOM.modHeaderLabel.classList.remove('hidden');
-		messageWorker('mod-headers', { headers: data });
-	});
 
-	this.DOM.clearHeaders.addEventListener('click', () => {
-		this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder'));
-		this.DOM.headerValues.forEach(node => node.value = "");
-		this.DOM.modHeaderStatus.textContent = `DISABLED`;
-		this.DOM.modHeaderLabel.classList.remove('hidden');
-		messageWorker('reset-headers');
-	});
+		//SAVE DATA
+		this.DOM.saveChartData.addEventListener('click', () => {
+			const chartData = JSON.parse(this.DOM.rawDataTextField.value);
+			this.saveJSON(chartData, `data-${chartData?.computed_at}` || "data");
+		});
+
+		//EZTRACK
+		this.DOM.startEZTrack.addEventListener('click', async () => {
+			const token = this.DOM.EZTrackToken.value;
+			if (!token) {
+				alert('token required');
+				return;
+			}
+			const tabId = await captureCurrentTabId();
+			this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${tabId?.toString()})`;
+			messageWorker('start-eztrack', { token, tabId });
+		});
+
+		this.DOM.stopEZTrack.addEventListener('click', () => {
+			this.DOM.EZTrackStatus.textContent = `DISABLED`;
+			messageWorker('stop-eztrack');
+		});
+
+		//SESSION REPLAY
+		this.DOM.startReplay.addEventListener('click', async () => {
+			const token = this.DOM.sessionReplayToken.value;
+			if (!token) {
+				alert('token required');
+				return;
+			}
+			const tabId = await captureCurrentTabId();
+			this.DOM.sessionReplayStatus.textContent = `ENABLED (tab #${tabId?.toString()})`;
+			messageWorker('start-replay', { token, tabId });
+		});
+
+		this.DOM.stopReplay.addEventListener('click', () => {
+			this.DOM.sessionReplayStatus.textContent = `DISABLED`;
+			messageWorker('stop-replay');
+		});
+
+		// MOD HEADER
+		this.DOM.saveHeaders.addEventListener('click', () => {
+			const data = [];
+			this.DOM.headerKeys.forEach((key, index) => {
+				const value = this.DOM.headerValues[index].value.trim();
+				if (key.value.trim() !== '' && value !== '') {
+					data.push({ [key.value]: value });
+				}
+			});
+			this.DOM.modHeaderStatus.textContent = `ENABLED`;
+			this.DOM.modHeaderLabel.classList.remove('hidden');
+			messageWorker('mod-headers', { headers: data });
+		});
+
+		this.DOM.clearHeaders.addEventListener('click', () => {
+			this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder'));
+			this.DOM.headerValues.forEach(node => node.value = "");
+			this.DOM.modHeaderStatus.textContent = `DISABLED`;
+			this.DOM.modHeaderLabel.classList.remove('hidden');
+			messageWorker('reset-headers');
+		});
+	}
+	catch (e) {
+		track('error: bindListeners', { error: e });
+		console.error('mp-tweaks: error binding listeners', e);
+
+	}
 }
 
 function buildButtons(object) {
@@ -650,6 +675,15 @@ function analytics() {
 	});
 }
 
+function track(event, data = {}) {
+	try {
+		mixpanel.track(event, data);
+	}
+	catch (e) {
+		console.error('mp-tweaks: failed to track', e);
+	}
+}
+
 
 function saveJSON(chartData = {}, fileName = `no fileName`) {
 	if (typeof chartData !== 'string') {
@@ -672,6 +706,7 @@ async function captureCurrentTabId() {
 			if (tabs.length && tabs[0].id) {
 				resolve(tabs[0].id);
 			} else {
+				track('error: captureCurrentTabId', { tabs });
 				reject(new Error('No active tab found'));
 			}
 		});
