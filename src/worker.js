@@ -53,7 +53,6 @@ async function init() {
 }
 
 init().then(() => { 
-
 	console.log("mp-tweaks: worker initialized");
 	return true;
 });
@@ -252,6 +251,24 @@ async function handleRequest(request) {
 }
 
 
+async function messageExtension(action, data) {
+	try {
+		console.log('mp-tweaks: sending message to popup:', action);
+		const sent = await chrome.runtime.sendMessage({ action, data });
+		return sent;
+	}
+	catch (e) {
+		console.error('mp-tweaks: error sending message:', e, "action:", action, "data", data);
+		return e;
+	}
+}
+
+/*
+----
+RUN IN WORKER
+----
+*/
+
 function updateHeaders(headers = [{ "foo": "bar" }]) {
 	const requestHeaders = headers.map((o) => {
 		return {
@@ -288,6 +305,72 @@ function removeHeaders() {
 	return update;
 }
 
+async function makeProject() {
+	const excludedOrgs = [
+		1, // Mixpanel
+		328203, // Mixpanel Demo
+		1673847, // SE Demo
+		1866253 // Demo Projects
+	];
+	const { orgId = "", oauthToken = "" } = STORAGE.whoami;
+	if (!orgId || !oauthToken) return;
+	const url = `https://mixpanel.com/api/app/organizations/${orgId}/create-project`;
+	const projectPayload = {
+		"cluster_id": 1,
+		"project_name": genName(),
+		"timezone_id": 404
+	};
+
+	const payload = {
+		method: 'POST',
+
+		headers: {
+			Authorization: `Bearer ${oauthToken}`,
+		},
+		body: JSON.stringify(projectPayload)
+
+	};
+
+	const projectsReq = await fetch(url, payload);
+
+	const projectsRes = await projectsReq.json();
+
+	const { api_secret, id, name, token } = projectsRes.results;
+
+	const data = {
+		api_secret,
+		id,
+		name,
+		token,
+		url: `https://mixpanel.com/project/${id}/app/settings#project/${id}`
+
+	};
+
+	return data;
+}
+
+async function startEzTrack(token, tabId) {
+	const library = await runScript("./src/lib/eztrack.min.js", [], { world: "ISOLATED" }, { id: tabId });
+	const init = await runScript(ezTrackInit, [token], { world: "ISOLATED" }, { id: tabId });
+	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
+	return [library, init, caution];
+}
+
+async function startSessionReplay(token, tabId) {
+	const library = await runScript("./src/lib/replay.js", [], { world: "MAIN" }, { id: tabId });
+	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
+	const init = await runScript(sessionReplayInit, [token, { lib: chrome.runtime.getURL('/src/lib/mixpanel.dev.min.js'), proxy }], { world: "MAIN" }, { id: tabId });
+	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
+	return [library, init, caution];
+
+}
+
+/*
+----
+RUN IN PAGE (using runscript)
+----
+*/
+
 async function runScript(funcOrPath, args = [], opts, target) {
 	try {
 		if (!target) target = await getCurrentTab();
@@ -319,38 +402,6 @@ async function runScript(funcOrPath, args = [], opts, target) {
 	}
 }
 
-async function fetchScriptContent(scriptPath) {
-	const response = await fetch(chrome.runtime.getURL(scriptPath));
-	const script = await response.text();
-	return script;
-}
-
-async function loadScripts() {
-	for (const tweak in SCRIPTS) {
-		const script = await fetchScriptContent(SCRIPTS[tweak].path);
-		SCRIPTS[tweak].code = script;
-	}
-}
-
-async function messageExtension(action, data) {
-	try {
-		console.log('mp-tweaks: sending message to popup:', action);
-		const sent = await chrome.runtime.sendMessage({ action, data });
-		return sent;
-	}
-	catch (e) {
-		console.error('mp-tweaks: error sending message:', e, "action:", action, "data", data);
-		return e;
-	}
-}
-
-
-/*
-----
-WORKFLOWS
-----
-*/
-
 function catchFetchWrapper(data, url) {
 	return new Promise((resolve, reject) => {
 		if (!window.MIXPANEL_CATCH_FETCH_ACTIVE) {
@@ -380,12 +431,11 @@ function catchFetchWrapper(data, url) {
 
 }
 
-
-
 function echo(data, key) {
 	console.log(`mp-tweaks: echoing data at key ${key}...`, data);
 	window[key] = data;
 }
+
 function reload() {
 	window.location.reload();
 }
@@ -401,20 +451,6 @@ function openNewTab(url, inBackground = false) {
 		}
 	});
 }
-
-// requires the "notifications" permission
-// ? https://developer.chrome.com/docs/extensions/reference/api/notifications
-// function showNotification() {
-//     chrome.notifications.create({
-//         type: 'basic',
-//         iconUrl: 'icon.png',
-//         title: 'Action Completed',
-//         message: 'A new project has been created. Click to view.',
-//         isClickable: true
-//     }, function(notificationId) {
-//         console.log('Notification shown.');
-//     });
-// }
 
 function ezTrackInit(token, opts = {}) {
 	if (Object.keys(opts).length === 0) opts = { verbose: true, api_host: "https://express-proxy-lmozz6xkha-uc.a.run.app" };
@@ -464,68 +500,6 @@ function sessionReplayInit(token, opts = {}) {
 
 	intervalId = setInterval(tryInit, 1000);
 
-}
-
-
-
-async function startEzTrack(token, tabId) {
-	const library = await runScript("./src/lib/eztrack.min.js", [], { world: "ISOLATED" }, { id: tabId });
-	const init = await runScript(ezTrackInit, [token], { world: "ISOLATED" }, { id: tabId });
-	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
-	return [library, init, caution];
-}
-
-async function startSessionReplay(token, tabId) {
-	const library = await runScript("./src/lib/replay.js", [], { world: "MAIN" }, { id: tabId });
-	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	const init = await runScript(sessionReplayInit, [token, { lib: chrome.runtime.getURL('/src/lib/mixpanel.dev.min.js'), proxy }], { world: "MAIN" }, { id: tabId });
-	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
-	return [library, init, caution];
-
-}
-
-async function makeProject() {
-	const excludedOrgs = [
-		1, // Mixpanel
-		328203, // Mixpanel Demo
-		1673847, // SE Demo
-		1866253 // Demo Projects
-	];
-	const { orgId = "", oauthToken = "" } = STORAGE.whoami;
-	if (!orgId || !oauthToken) return;
-	const url = `https://mixpanel.com/api/app/organizations/${orgId}/create-project`;
-	const projectPayload = {
-		"cluster_id": 1,
-		"project_name": genName(),
-		"timezone_id": 404
-	};
-
-	const payload = {
-		method: 'POST',
-
-		headers: {
-			Authorization: `Bearer ${oauthToken}`,
-		},
-		body: JSON.stringify(projectPayload)
-
-	};
-
-	const projectsReq = await fetch(url, payload);
-
-	const projectsRes = await projectsReq.json();
-
-	const { api_secret, id, name, token } = projectsRes.results;
-
-	const data = {
-		api_secret,
-		id,
-		name,
-		token,
-		url: `https://mixpanel.com/project/${id}/app/settings#project/${id}`
-
-	};
-
-	return data;
 }
 
 function removeFlags() {
@@ -745,9 +719,6 @@ async function getUser() {
 
 	return user;
 }
-
-
-
 
 
 // hack for typescript
