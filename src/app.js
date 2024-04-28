@@ -225,6 +225,8 @@ function queryBuilderHandleCatch(data) {
 	let reportName = data?.report_query_origin || data?.tracking_props?.report_name;
 	if (reportName === 'flows') reportName = 'arb_funnels';
 	const [projectId, workspaceId] = data?.tracking_props?.request_url?.split('/')?.filter(a => !isNaN(parseInt(a)));
+	const { bookmark = {} } = data;
+	const payload = { bookmark };
 	const curlSnippet = String.raw`
 	curl 'https://mixpanel.com/api/query/${reportName}?workspace_id=${workspaceId}&project_id=${projectId}' \
   -H 'accept: */*' \
@@ -232,7 +234,7 @@ function queryBuilderHandleCatch(data) {
   -H 'cache-control: no-cache' \
   -H 'content-type: application/json; charset=UTF-8' \
   -H 'user-agent: mp-tweaks' \
-  --data-raw '${JSON.stringify(data)}'
+  --data-raw '${JSON.stringify(payload)}'
 	`.trim();
 	this.DOM.rawDataTextField.value = curlSnippet;
 	console.log('mp-tweaks: query builder handled catch', data);
