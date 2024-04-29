@@ -297,6 +297,7 @@ function cacheDOM() {
 	this.DOM.stopEZTrack = document.querySelector('#stopEZTrack');
 	this.DOM.startReplay = document.querySelector('#startReplay');
 	this.DOM.stopReplay = document.querySelector('#stopReplay');
+	this.DOM.nukeCookies = document.querySelector('#nukeCookies');
 
 	//inputs
 	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
@@ -553,6 +554,11 @@ function bindListeners() {
 			this.DOM.modHeaderStatus.textContent = `DISABLED`;
 			this.DOM.modHeaderLabel.classList.remove('hidden');
 			messageWorker('reset-headers');
+		});
+
+		this.DOM.nukeCookies.addEventListener('click', async () => {
+			const numDeleted = await messageWorker('nuke-cookies');
+			alert(`Deleted ${numDeleted} cookies`);
 		});
 	}
 	catch (e) {

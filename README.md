@@ -30,6 +30,9 @@ It can be found (unlisted) on the chrome web story here: **http://bit.ly/mpTweak
 ### 🧰 Odds and Ends
 - **Miscellaneous Tools**: Includes tools like nuking cookies for cleaning up or debugging.
 
+### 🍿 Demo
+<a href="https://www.loom.com/share/795c7e6de6e24d8ab6b5d664628f4dd6?sid=2c645918-f455-48f0-8f33-048a2080bae0" target="_blank"><img src="https://aktunes.neocities.org/tweaksVideo.png"></a>
+
 ###  🤝 Contributing
 Contributions are welcome! Please read the contributing guide on how to propose bug fixes, improvements, or new features.
 

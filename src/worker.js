@@ -242,6 +242,10 @@ async function handleRequest(request) {
 			result = removeHeaders();
 			await runScript(reload);
 			break;
+		
+		case 'nuke-cookies':
+			result = await nukeCookies();
+			break;
 
 		default:
 			console.error("mp-tweaks: unknown action", request);
@@ -363,6 +367,15 @@ async function startSessionReplay(token, tabId) {
 	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
 	return [library, init, caution];
 
+}
+
+async function nukeCookies(domain = "mixpanel.com") {
+	const allCookies = await chrome.cookies.getAll({});
+	const cookies = allCookies.filter(c => c.domain.includes(domain));
+	for (const cookie of cookies) {
+		await chrome.cookies.remove({ url: `https://${cookie.domain}${cookie.path}`, name: cookie.name });
+	}
+	return cookies.length;
 }
 
 /*

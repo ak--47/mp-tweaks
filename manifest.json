@@ -13,7 +13,8 @@
 		"storage",
 		"scripting",
 		"declarativeNetRequest",
-		"declarativeNetRequestWithHostAccess"
+		"declarativeNetRequestWithHostAccess",
+		"cookies"
 	], 
 	"host_permissions": [
 		"https://mixpanel.com/",
