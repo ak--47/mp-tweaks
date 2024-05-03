@@ -316,12 +316,15 @@ function cacheDOM() {
 	this.DOM.sessionReplayStatus = document.querySelector('#sessionReplayLabel b');
 
 	//headers
+	this.DOM.checkPairs = document.querySelectorAll('.checkPair');
+	this.DOM.deletePairs = document.querySelectorAll('.deletePair');
 	this.DOM.headerKeys = document.querySelectorAll('.headerKey');
 	this.DOM.headerValues = document.querySelectorAll('.headerValue');
 	this.DOM.saveHeaders = document.querySelector('#saveHeaders');
 	this.DOM.clearHeaders = document.querySelector('#clearHeaders');
 	this.DOM.modHeaderLabel = document.querySelector('#modHeaderLabel');
 	this.DOM.modHeaderStatus = document.querySelector('#modHeaderLabel b');
+	this.DOM.addHeader = document.querySelector('#addHeader');
 
 }
 
@@ -518,6 +521,17 @@ function bindListeners() {
 		});
 
 		//SESSION REPLAY
+
+		//autosave
+		this.DOM.sessionReplayToken.addEventListener('blur', () => {
+			const token = this.DOM.sessionReplayToken.value;
+			if (token !== STORAGE.sessionReplay.token) {
+				setStorage({ sessionReplay: { token, enabled: false } });
+			} 
+		});
+
+
+		//start
 		this.DOM.startReplay.addEventListener('click', async () => {
 			const token = this.DOM.sessionReplayToken.value;
 			if (!token) {
@@ -529,6 +543,7 @@ function bindListeners() {
 			messageWorker('start-replay', { token, tabId });
 		});
 
+		//stop
 		this.DOM.stopReplay.addEventListener('click', () => {
 			this.DOM.sessionReplayStatus.textContent = `DISABLED`;
 			messageWorker('stop-replay');

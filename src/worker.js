@@ -78,7 +78,7 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 		// mixpanel tweaks
 		if (tab.url.includes('mixpanel.com') && (tab.url.includes('project') || tab.url.includes('report'))) {
 			console.log('mp-tweaks: Mixpanel page loaded');
-			const userScripts = STORAGE.persistScripts;
+			const userScripts = STORAGE?.persistScripts || [];
 			for (const script of userScripts) {
 				if (SCRIPTS[script]) {
 					const { path } = SCRIPTS[script];
