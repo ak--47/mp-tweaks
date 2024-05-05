@@ -259,7 +259,7 @@ function setCheckbox(state) {
 
 function getCheckbox() {
 	const persistScript = [];
-	this.DOM.checkboxes.forEach(function (checkbox) {
+	this.DOM.toggles.forEach(function (checkbox) {
 		if (checkbox.checked) persistScript.push(checkbox.id);
 	});
 
@@ -269,18 +269,21 @@ function getCheckbox() {
 function cacheDOM() {
 	//main
 	this.DOM.main = document.querySelector('#main');
-	this.DOM.perTab = document.querySelector('#perTab');
-	this.DOM.checkboxes = document.querySelectorAll('.toggle');
 	this.DOM.loader = document.getElementById('loader');
 
-	//toggles
-	this.DOM.persistentOptions = document.querySelector('#persistentOptions');
+	//feature flags
+	this.DOM.perTab = document.querySelector('#perTab');
+	this.DOM.buttonWrapper = document.querySelector('#buttons');
+	this.DOM.removeAll = document.querySelector('#removeAll');
+
+	//persistent scripts	
+	this.DOM.toggles = document.querySelectorAll('.toggle');
+	this.DOM.persistentOptions = document.querySelector('#persistentOptions');		
 	this.DOM.hideBanners = document.querySelector('#hideBanners');
 	this.DOM.renameTabs = document.querySelector('#renameTabs');
 	this.DOM.hundredX = document.querySelector('#hundredX');
 
-	//buttons
-	this.DOM.buttonWrapper = document.querySelector('#buttons');
+	//chart fetcher + api maker	
 	this.DOM.fetchChartData = document.querySelector('#fetchChartData');
 	this.DOM.buildChartPayload = document.querySelector('#buildChartPayload');
 	this.DOM.postChartData = document.querySelector('#postChartData');
@@ -289,31 +292,32 @@ function cacheDOM() {
 	this.DOM.rawDataTextField = document.querySelector('#rawData');
 	this.DOM.randomize = document.querySelector('#randomize');
 	this.DOM.saveChartData = document.querySelector('#saveChartData');
+	this.DOM.contextError = document.querySelector('#contextError');
+	this.DOM.jsonError = document.querySelector('#badJSON');
+	
+	//project creator
 	this.DOM.makeProject = document.querySelector('#makeProject');
 	this.DOM.projectDetails = document.querySelector('#projectDetails textarea');
 	this.DOM.makeProjectSpinner = document.querySelector('#makeProjectSpinner');
-	this.DOM.removeAll = document.querySelector('#removeAll');
-	this.DOM.startEZTrack = document.querySelector('#startEZTrack');
-	this.DOM.stopEZTrack = document.querySelector('#stopEZTrack');
-	this.DOM.startReplay = document.querySelector('#startReplay');
-	this.DOM.stopReplay = document.querySelector('#stopReplay');
-	this.DOM.nukeCookies = document.querySelector('#nukeCookies');
-
-	//inputs
-	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
-	this.DOM.sessionReplayToken = document.querySelector('#sessionReplayToken');
-
-	//error messages
-	this.DOM.contextError = document.querySelector('#contextError');
-	this.DOM.jsonError = document.querySelector('#badJSON');
-
-	//labels
 	this.DOM.orgLabel = document.querySelector('#orgLabel');
 	this.DOM.orgPlaceholder = document.querySelector('#orgLabel b');
+	
+	//EZTrack
+	this.DOM.startEZTrack = document.querySelector('#startEZTrack');
+	this.DOM.stopEZTrack = document.querySelector('#stopEZTrack');
+	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
 	this.DOM.EZTrackLabel = document.querySelector('#EZTrackLabel');
 	this.DOM.EZTrackStatus = document.querySelector('#EZTrackLabel b');
+	
+	//session replay
+	this.DOM.startReplay = document.querySelector('#startReplay');
+	this.DOM.stopReplay = document.querySelector('#stopReplay');
+	this.DOM.sessionReplayToken = document.querySelector('#sessionReplayToken');
 	this.DOM.sessionReplayLabel = document.querySelector('#sessionReplayLabel');
 	this.DOM.sessionReplayStatus = document.querySelector('#sessionReplayLabel b');
+	
+	//odds and ends
+	this.DOM.nukeCookies = document.querySelector('#nukeCookies');
 
 	//headers
 	this.DOM.checkPairs = document.querySelectorAll('.checkPair');
@@ -377,7 +381,7 @@ function loadInterface() {
 function bindListeners() {
 	try {
 		//TOGGLES
-		this.DOM.checkboxes.forEach(function (checkbox) {
+		this.DOM.toggles.forEach(function (checkbox) {
 			checkbox.addEventListener('click', function (event) {
 				const data = APP.getCheckbox();
 				setStorage({ 'persistScripts': data }).then(() => { });
@@ -523,7 +527,7 @@ function bindListeners() {
 		//SESSION REPLAY
 
 		//autosave
-		this.DOM.sessionReplayToken.addEventListener('blur', () => {
+		this.DOM.sessionReplayToken.addEventListener('input', () => {
 			const token = this.DOM.sessionReplayToken.value;
 			if (token !== STORAGE.sessionReplay.token) {
 				setStorage({ sessionReplay: { token, enabled: false } });
@@ -670,7 +674,8 @@ function analytics() {
 					mixpanel.register({
 						"$email": whoami.email,
 						"version": APP.currentVersion,
-						"name": whoami.name
+						"name": whoami.name,
+						"component": "frontend"
 					});
 					mixpanel.people.set({ "$name": whoami.name, "$email": whoami.email });
 					mixpanel.people.set_once({ "$created": new Date().toISOString() });

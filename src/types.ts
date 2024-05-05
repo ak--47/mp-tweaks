@@ -26,11 +26,19 @@ export type ChromeStorage = {
 	verbose: boolean;
 	last_updated?: number;
 	modHeaders: {
-		headers: Object[]
+		headers: ModHeaders[]
 		enabled: boolean;
 	}
   };
   
+// Define a type for the additional string key-value pairs
+type AdditionalHeaders = {
+    [key: string]: string;
+}
 
+// Define a type that includes the specific 'enabled' property and additional properties
+type ModHeaders = AdditionalHeaders & {
+    enabled: boolean;
+}
 
 type Hacks = '100x' | 'hideBanners' | 'renameTabs'

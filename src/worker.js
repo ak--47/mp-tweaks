@@ -3,6 +3,8 @@
 let STORAGE;
 let cachedFlags = null;
 
+let tracker = noop;
+
 const APP_VERSION = `2.21`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
@@ -33,8 +35,6 @@ RUNTIME
 */
 
 async function init() {
-	// await loadScripts();
-	// console.log("mp-tweaks: scripts loaded");
 
 	STORAGE = await getStorage();
 	if (!haveSameShape(STORAGE, STORAGE_MODEL) || STORAGE.version !== APP_VERSION) {
@@ -45,14 +45,18 @@ async function init() {
 	if (!STORAGE?.whoami?.email) {
 		console.log("mp-tweaks: getting user");
 		const user = await getUser();
-		if (user.email) STORAGE.whoami = user;
+		if (user.email) {
+			STORAGE.whoami = user;
+			const { email, name } = user;
+			tracker = analytics(email, { component: "worker", name, $email: email });
+		}
 		await setStorage(STORAGE);
 	}
 
 	return STORAGE;
 }
 
-init().then(() => { 
+init().then(() => {
 	console.log("mp-tweaks: worker initialized");
 	return true;
 });
@@ -229,22 +233,33 @@ async function handleRequest(request) {
 		case 'mod-headers':
 			const headers = request.data.headers;
 			STORAGE.modHeaders.headers = headers;
-			STORAGE.modHeaders.enabled = true;
+			if (Array.isArray(headers)) {
+				if (headers.some(h => h.enabled)) {
+					STORAGE.modHeaders.enabled = true;
+				}
+				else {
+					STORAGE.modHeaders.enabled = false;
+				}
+			}
 			await setStorage(STORAGE);
-			result = updateHeaders(headers);
-			await runScript(reload);
+			result = await updateHeaders(headers);
 			break;
 
 		case 'reset-headers':
 			STORAGE.modHeaders.headers = [];
 			STORAGE.modHeaders.enabled = false;
 			await setStorage(STORAGE);
-			result = removeHeaders();
+			result = await removeHeaders();
 			await runScript(reload);
 			break;
-		
+
 		case 'nuke-cookies':
 			result = await nukeCookies();
+			break;
+
+		case 'reload':
+			await runScript(reload);
+			result = true;
 			break;
 
 		default:
@@ -273,40 +288,60 @@ RUN IN WORKER
 ----
 */
 
-function updateHeaders(headers = [{ "foo": "bar" }]) {
-	const requestHeaders = headers.map((o) => {
-		return {
-			header: Object.keys(o)[0],
-			operation: "set",
-			value: Object.values(o)[0]
-		};
-	});
+async function updateHeaders(headers = [{ "foo": "bar", enabled: false }]) {
+	try {
+		const requestHeaders = headers
+			.filter(h => h.enabled)
+			.map((o) => {
+				const { enabled, ...rest } = o;
+				return rest;
+			})
+			.map((o) => {
+				return {
+					header: Object.keys(o)[0],
+					operation: "set",
+					value: Object.values(o)[0]
+				};
+			});
 
-	const update = chrome.declarativeNetRequest.updateDynamicRules({
-		removeRuleIds: [1],  // Clear the previous rule if it exists
-		addRules: [{
-			id: 1,
-			priority: 1,
-			action: {
-				type: "modifyHeaders",
-				requestHeaders
-			},
-			condition: {
-				urlFilter: "*",  // This wildcard matches all URLs
-				resourceTypes: ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
-			}
-		}]
-	});
+		const update = await chrome.declarativeNetRequest.updateDynamicRules({
+			removeRuleIds: [1],  // Clear the previous rule if it exists
+			addRules: [{
+				id: 1,
+				priority: 1,
+				action: {
+					type: "modifyHeaders",
+					requestHeaders
+				},
+				condition: {
+					urlFilter: "*",  // This wildcard matches all URLs
+					resourceTypes: ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
+				}
+			}]
+		});
 
-	return update;
+		return update;
+	}
+	catch (e) {
+		console.error('mp-tweaks: error updating headers:', e);
+		return e;
+
+	}
 }
 
-function removeHeaders() {
-	const update = chrome.declarativeNetRequest.updateDynamicRules({
-		removeRuleIds: [1],  // Clear the previous rule if it exists
-	});
+async function removeHeaders() {
+	try {
+		const update = await chrome.declarativeNetRequest.updateDynamicRules({
+			removeRuleIds: [1],  // Clear the previous rule if it exists
+		});
 
-	return update;
+		return update;
+	}
+	catch (e) {
+		console.error('mp-tweaks: error removing headers:', e);
+		return e;
+
+	}
 }
 
 async function makeProject() {
@@ -622,6 +657,8 @@ function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function noop() { }
+
 /*
 ----
 STORAGE
@@ -731,6 +768,47 @@ async function getUser() {
 	}
 
 	return user;
+}
+
+function analytics(user_id, superProps = {}, token = "99526f575a41223fcbadd9efdd280c7e", url = "https://api.mixpanel.com/track?verbose=1") {
+	return function (eventName = "ping", props = {}, callback = (res) => { }) {
+		const headers = {
+			"Content-Type": "application/json",
+			"Accept": "text/plain",
+		};
+		const payload = JSON.stringify([
+			{
+				event: eventName,
+				properties: {
+					token: token,
+					$user_id: user_id,
+					...superProps,
+					...props,
+				}
+			}
+		]);
+
+		fetch(url, {
+			method: 'POST',
+			headers: headers,
+			body: payload
+		})
+			.then(response => response.text())  // Assuming the response is text (plain or JSON)
+			.then(text => {
+				try {
+					// Attempt to parse it as JSON
+					const jsonData = JSON.parse(text);
+					callback(jsonData);  // Passing back as an array for consistency with your original function
+				} catch (error) {
+					// If it's not JSON, pass the raw response
+					callback(text);
+				}
+			})
+			.catch(error => {
+				console.error('mp-tweaks: analytics error; event:', eventName, 'props:', props, 'error', error);
+				callback({});  // Invoke the callback with empty array to indicate failure
+			});
+	};
 }
 
 
