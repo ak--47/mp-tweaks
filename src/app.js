@@ -26,6 +26,7 @@ const APP = {
 	listenForWorker,
 	dataEditorHandleCatch,
 	queryBuilderHandleCatch,
+	getHeaders,
 	init: function () {
 		this.cacheDOM();
 		this.getStorage().then(() => {
@@ -278,7 +279,7 @@ function cacheDOM() {
 
 	//persistent scripts	
 	this.DOM.toggles = document.querySelectorAll('.toggle');
-	this.DOM.persistentOptions = document.querySelector('#persistentOptions');		
+	this.DOM.persistentOptions = document.querySelector('#persistentOptions');
 	this.DOM.hideBanners = document.querySelector('#hideBanners');
 	this.DOM.renameTabs = document.querySelector('#renameTabs');
 	this.DOM.hundredX = document.querySelector('#hundredX');
@@ -294,28 +295,28 @@ function cacheDOM() {
 	this.DOM.saveChartData = document.querySelector('#saveChartData');
 	this.DOM.contextError = document.querySelector('#contextError');
 	this.DOM.jsonError = document.querySelector('#badJSON');
-	
+
 	//project creator
 	this.DOM.makeProject = document.querySelector('#makeProject');
 	this.DOM.projectDetails = document.querySelector('#projectDetails textarea');
 	this.DOM.makeProjectSpinner = document.querySelector('#makeProjectSpinner');
 	this.DOM.orgLabel = document.querySelector('#orgLabel');
 	this.DOM.orgPlaceholder = document.querySelector('#orgLabel b');
-	
+
 	//EZTrack
 	this.DOM.startEZTrack = document.querySelector('#startEZTrack');
 	this.DOM.stopEZTrack = document.querySelector('#stopEZTrack');
 	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
 	this.DOM.EZTrackLabel = document.querySelector('#EZTrackLabel');
 	this.DOM.EZTrackStatus = document.querySelector('#EZTrackLabel b');
-	
+
 	//session replay
 	this.DOM.startReplay = document.querySelector('#startReplay');
 	this.DOM.stopReplay = document.querySelector('#stopReplay');
 	this.DOM.sessionReplayToken = document.querySelector('#sessionReplayToken');
 	this.DOM.sessionReplayLabel = document.querySelector('#sessionReplayLabel');
 	this.DOM.sessionReplayStatus = document.querySelector('#sessionReplayLabel b');
-	
+
 	//odds and ends
 	this.DOM.nukeCookies = document.querySelector('#nukeCookies');
 
@@ -329,6 +330,7 @@ function cacheDOM() {
 	this.DOM.modHeaderLabel = document.querySelector('#modHeaderLabel');
 	this.DOM.modHeaderStatus = document.querySelector('#modHeaderLabel b');
 	this.DOM.addHeader = document.querySelector('#addHeader');
+	this.DOM.userHeaders = document.querySelector('#userHeaders');
 
 }
 
@@ -366,7 +368,16 @@ function loadInterface() {
 		if (modHeaders.enabled) this.DOM.modHeaderStatus.textContent = `ENABLED`;
 		else this.DOM.modHeaderStatus.textContent = `DISABLED`;
 		this.DOM.modHeaderLabel.classList.remove('hidden');
-		modHeaders.headers.forEach((header, index) => {
+		//hack to deal with more than 3...
+		if (modHeaders.headers.length > 3) {
+			const numClicks = modHeaders.headers.length - 3;
+			for (let i = 0; i < numClicks; i++) {
+				this.DOM.addHeader.click(); //yea i know...
+			}
+		}
+		modHeaders.headers.forEach((obj, index) => {
+			const { enabled, ...header } = obj;
+			this.DOM.checkPairs[index].checked = enabled;
 			this.DOM.headerKeys[index].value = Object.keys(header)[0];
 			this.DOM.headerValues[index].value = Object.values(header)[0];
 		});
@@ -531,7 +542,7 @@ function bindListeners() {
 			const token = this.DOM.sessionReplayToken.value;
 			if (token !== STORAGE.sessionReplay.token) {
 				setStorage({ sessionReplay: { token, enabled: false } });
-			} 
+			}
 		});
 
 
@@ -555,23 +566,67 @@ function bindListeners() {
 
 		// MOD HEADER
 		this.DOM.saveHeaders.addEventListener('click', () => {
-			const data = [];
-			this.DOM.headerKeys.forEach((key, index) => {
-				const value = this.DOM.headerValues[index].value.trim();
-				if (key.value.trim() !== '' && value !== '') {
-					data.push({ [key.value]: value });
-				}
-			});
-			this.DOM.modHeaderStatus.textContent = `ENABLED`;
-			this.DOM.modHeaderLabel.classList.remove('hidden');
-			messageWorker('mod-headers', { headers: data });
+			const data = this.getHeaders();
+			const active = data.filter(obj => obj.enabled);
+			if (active.length === 0) {
+				this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				messageWorker('reset-headers').then(() => {
+					messageWorker('reload');
+				});
+
+			}
+
+			else {
+				this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data }).then(() => {
+					messageWorker('reload');
+				});
+
+			}
 		});
 
+		// AUTO SAVE KEYS
+		this.DOM.headerKeys.forEach(node => {
+			node.addEventListener('input', () => {
+				messageWorker('mod-headers', { headers: this.getHeaders() });
+			});
+		});
+
+		// AUTO SAVE VALUES
+		this.DOM.headerValues.forEach(node => {
+			node.addEventListener('input', () => {
+				messageWorker('mod-headers', { headers: this.getHeaders() });
+			});
+		});
+
+		// AUTO SAVE CHECKBOXES
+		this.DOM.checkPairs.forEach(node => {
+			node.addEventListener('change', () => {
+				messageWorker('mod-headers', { headers: this.getHeaders() });
+			});
+		});
+
+		// REMOVE HEADER
+		this.DOM.deletePairs.forEach((node, index) => {
+			node.addEventListener('click', (clickEv) => {
+				let row = clickEv.target.closest('.row');
+				if (row) this.DOM.userHeaders.removeChild(row);
+				messageWorker('mod-headers', { headers: this.getHeaders() }).then(() => {
+					messageWorker('reload');
+				});
+			});
+		});
+
+		// ADD HEADER
+		this.DOM.addHeader.addEventListener('click', () => {
+			addHeaderRow.bind(this)();
+		});
+
+		// RESET
 		this.DOM.clearHeaders.addEventListener('click', () => {
 			this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder'));
 			this.DOM.headerValues.forEach(node => node.value = "");
 			this.DOM.modHeaderStatus.textContent = `DISABLED`;
-			this.DOM.modHeaderLabel.classList.remove('hidden');
 			messageWorker('reset-headers');
 		});
 
@@ -632,6 +687,56 @@ function flipIntegers(obj) {
 
 	return obj;
 }
+
+function getHeaders() {
+	const data = [];
+	this.DOM.headerKeys.forEach((key, index) => {
+		const value = this.DOM.headerValues[index].value.trim();
+		if (key.value.trim() !== '' && value !== '') {
+			const checked = this.DOM.checkPairs[index].checked;
+			data.push({ [key.value]: value, enabled: checked });
+		}
+	});
+
+	return data;
+}
+
+function addHeaderRow() {
+	/** @type {HTMLDivElement} */
+	const row = document.createElement('div');
+	row.className = 'row';
+	row.innerHTML = `
+        <input class="checkPair" type="checkbox"/> 
+        <input class="headerKey" type="text"/> : 
+        <input class="headerValue" type="text"/> 
+        <button class="deletePair">-</button>
+        <br/>
+    `;
+
+	// Append to the container
+	this.DOM.userHeaders.appendChild(row);
+
+	// Add event listeners
+	row?.querySelector('.deletePair')?.addEventListener('click', () => {
+		row.remove(); // Remove the row
+		messageWorker('mod-headers', { headers: this.getHeaders() }).then(() => {
+			messageWorker('reload');
+		});
+	});
+
+	row?.querySelector('.headerKey')?.addEventListener('input', () => {
+		messageWorker('mod-headers', { headers: this.getHeaders() });
+	});
+
+	row?.querySelector('.headerValue')?.addEventListener('input', () => {
+		messageWorker('mod-headers', { headers: this.getHeaders() });
+	});
+
+	row?.querySelector('.checkPair')?.addEventListener('change', () => {
+		messageWorker('mod-headers', { headers: this.getHeaders() });
+	});
+}
+
 
 function filterObj(hash, test_function, keysOrValues = "value") {
 	let key, i;

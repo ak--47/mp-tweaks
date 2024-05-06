@@ -232,6 +232,11 @@ async function handleRequest(request) {
 
 		case 'mod-headers':
 			const headers = request.data.headers;
+			if (haveSameShape(headers, STORAGE.modHeaders.headers)) {
+				console.log('mp-tweaks: headers unchanged');
+				result = null;
+				break;
+			}
 			STORAGE.modHeaders.headers = headers;
 			if (Array.isArray(headers)) {
 				if (headers.some(h => h.enabled)) {
