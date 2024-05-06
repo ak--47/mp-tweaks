@@ -55,7 +55,7 @@ describe("general", () => {
 
 
 
-describe("modheader", () => {
+describe("mod header", () => {
 	let page;
 
 	beforeEach(async () => {
@@ -116,19 +116,134 @@ describe("modheader", () => {
 	}, timeout);
 });
 
-// let browser;
 
-// beforeEach(async () => {
-// 	browser = await puppeteer.launch({
-// 	  headless: false,
-// 	  args: [
-// 		`--disable-extensions-except=${EXTENSION_PATH}`,
-// 		`--load-extension=${EXTENSION_PATH}`
-// 	  ]
-// 	});
-//   });
 
-//   afterEach(async () => {
-// 	await browser.close();
-// 	browser = undefined;
-//   });
+describe("session replay", () => {
+    let page;
+
+    beforeEach(async () => {
+        page = await browser.newPage();
+        await page.goto(`chrome-extension://${EXTENSION_ID}/src/app.html`);
+		await page.waitForSelector('#loader', { hidden: true, timeout });
+        await page.waitForSelector('#sessionReplayToken', { visible: true });
+    });
+
+    afterEach(async () => {
+        await page.close();
+    });
+
+    test("start replay", async () => {
+        await page.type("#sessionReplayToken", "test-token");
+        await page.click("#startReplay");
+        const statusText = await page.evaluate(() => document.querySelector("#sessionReplayLabel").textContent);
+        expect(statusText.includes("ENABLED")).toBe(true);
+    }, timeout);
+
+    test("stop replay", async () => {
+        await page.click("#stopReplay");
+        const statusText = await page.evaluate(() => document.querySelector("#sessionReplayLabel").textContent);
+        expect(statusText.includes("DISABLED")).toBe(true);
+    }, timeout);
+});
+
+describe("scripts", () => {
+    let page;
+
+    beforeEach(async () => {
+        page = await browser.newPage();
+        await page.goto(`chrome-extension://${EXTENSION_ID}/src/app.html`);
+		await page.waitForSelector('#loader', { hidden: true, timeout });
+    });
+
+    afterEach(async () => {
+        await page.close();
+    });
+
+    test("toggles", async () => {
+        const initialStatus = await page.evaluate(() => {
+            const checkbox = document.querySelector("#hideBanners");
+            checkbox.click();
+            return checkbox.checked;
+        });
+        expect(initialStatus).toBe(true);
+    }, timeout);
+});
+
+
+describe("feature flags", () => {
+    let page;
+
+    beforeEach(async () => {
+        page = await browser.newPage();
+        await page.goto(`chrome-extension://${EXTENSION_ID}/src/app.html`);
+		await page.waitForSelector('#loader', { hidden: true, timeout });        
+    });
+
+    afterEach(async () => {
+        await page.close();
+    });
+
+    test("removes", async () => {
+        await page.click("#removeAll");
+		expect(true).toBe(true); //todo: what can we assert here?
+    }, timeout);
+});
+
+describe("cookies", () => {
+    let page;
+
+    beforeEach(async () => {
+        page = await browser.newPage();
+        await page.goto(`chrome-extension://${EXTENSION_ID}/src/app.html`);
+		await page.waitForSelector('#loader', { hidden: true, timeout });
+        await page.waitForSelector('#nukeCookies', { visible: true });
+    });
+
+    afterEach(async () => {
+        await page.close();
+    });
+
+	test("nuke", async () => {
+		await page.evaluate(() => {
+			// Mock the alert to store its last message in a global variable
+			window.lastAlertMsg = "none";
+			window.alert = (msg) => window.lastAlertMsg = msg;
+		});
+		
+		await page.click("#nukeCookies");
+		
+		// Retrieve the message from the mocked alert
+		const alertText = await page.evaluate(() => window.lastAlertMsg);
+		expect(alertText).toContain("Deleted ");
+	}, timeout);
+	
+});
+
+// describe("eztrack", () => {
+//     let page;
+
+//     beforeEach(async () => {
+//         page = await browser.newPage();
+//         await page.goto(`chrome-extension://${EXTENSION_ID}/src/app.html`);
+// 		await page.waitForSelector('#loader', { hidden: true, timeout });
+//         await page.waitForSelector('#startEZTrack', { visible: true });
+		
+//     });
+
+//     afterEach(async () => {
+//         await page.close();
+//     });
+
+//     test("starts", async () => {
+//         await page.type("#EZTrackToken", "valid-token");
+//         await page.click("#startEZTrack");
+//         const statusText = await page.evaluate(() => document.querySelector("#EZTrackLabel").textContent);
+//         expect(statusText.includes("ENABLED")).toBe(true);
+//     }, timeout);
+
+//     test("stops", async () => {
+//         await page.click("#stopEZTrack");
+//         const statusText = await page.evaluate(() => document.querySelector("#EZTrackLabel").textContent);
+//         expect(statusText.includes("DISABLED")).toBe(true);
+//     }, timeout);
+// });

@@ -180,6 +180,7 @@ function listenForWorker() {
 			case "make-project":
 				break;
 			case "nuke-cookies":
+				alert(`Deleted ${message.data || "zero "} mixpanel.com cookies`);
 				break;
 			case "reload":
 				break;

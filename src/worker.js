@@ -70,10 +70,10 @@ HOOKS
 */
 
 //install
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
 	console.log('mp-tweaks: Extension Installed');
-	track('install');
-	return true;
+	track('install', details);
+	return;
 });
 
 //open tabs
@@ -116,6 +116,7 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 
 
 });
+
 // closed tabs
 chrome.tabs.onRemoved.addListener(function (tabId, removeInfo) {
 	if (tabId === STORAGE?.EZTrack?.tabId) {
@@ -253,7 +254,7 @@ async function handleRequest(request) {
 			}
 			STORAGE.modHeaders.headers = newHeaders;
 			if (newHeaders.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
-			else STORAGE.modHeaders.enabled = false;			
+			else STORAGE.modHeaders.enabled = false;
 			result = await setStorage(STORAGE);
 			break;
 
@@ -440,6 +441,7 @@ async function startSessionReplay(token, tabId) {
 async function nukeCookies(domain = "mixpanel.com") {
 	const allCookies = await chrome.cookies.getAll({});
 	const cookies = allCookies.filter(c => c.domain.includes(domain));
+	if (cookies.length === 0) return "zero"
 	for (const cookie of cookies) {
 		await chrome.cookies.remove({ url: `https://${cookie.domain}${cookie.path}`, name: cookie.name });
 	}
