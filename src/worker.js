@@ -238,6 +238,7 @@ async function handleRequest(request) {
 			STORAGE.modHeaders.headers = headers;
 			if (headers.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
 			else STORAGE.modHeaders.enabled = false;
+			await updateIconBasedOnHeaders(STORAGE.modHeaders.enabled);
 			await setStorage(STORAGE);
 			result = await updateHeaders(headers);
 			break;
@@ -252,13 +253,14 @@ async function handleRequest(request) {
 			}
 			STORAGE.modHeaders.headers = newHeaders;
 			if (newHeaders.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
-			else STORAGE.modHeaders.enabled = false;
+			else STORAGE.modHeaders.enabled = false;			
 			result = await setStorage(STORAGE);
 			break;
 
 		case 'reset-headers':
 			STORAGE.modHeaders.headers = [];
 			STORAGE.modHeaders.enabled = false;
+			await updateIconBasedOnHeaders(STORAGE.modHeaders.enabled);
 			await setStorage(STORAGE);
 			result = await removeHeaders();
 			await runScript(reload);
@@ -357,6 +359,23 @@ async function removeHeaders() {
 
 	}
 }
+
+/**
+ * @param  {boolean} enabled
+ */
+async function updateIconBasedOnHeaders(enabled) {
+	if (typeof enabled !== 'boolean') throw new Error(`update icon expected boolean, got ${typeof enabled}`);
+	let iconPath = enabled ? "/icons/iconActive.png" : "icons/icon128.png";
+	iconPath = chrome.runtime.getURL(iconPath);
+
+	try {
+		await chrome.action.setIcon({ path: iconPath });
+		console.log('mp-tweaks updated icon:', iconPath);
+	} catch (error) {
+		console.error('mp-tweaks failed to update icon:', error, "icon:", iconPath);
+	}
+}
+
 
 async function makeProject() {
 	const excludedOrgs = [

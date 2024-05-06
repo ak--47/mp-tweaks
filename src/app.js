@@ -31,7 +31,7 @@ const APP = {
 		this.cacheDOM();
 		this.getStorage().then(() => {
 			this.bindListeners();
-			this.loadInterface();			
+			this.loadInterface();
 			this.listenForWorker();
 			this.analytics();
 
@@ -117,7 +117,7 @@ async function messageWorker(action, data) {
 		console.log('Response from worker:', response);
 		return response;
 	} catch (error) {
-		track('error: messageWorker', { error });
+		track('error: messageWorker', { action, error });
 		console.error('Error:', error);
 	}
 
@@ -586,9 +586,6 @@ function bindListeners() {
 				this.DOM.modHeaderStatus.textContent = `DISABLED`;
 				messageWorker('reset-headers');
 				setTimeout(() => { messageWorker('reload'); }, 250);
-
-
-
 			}
 
 			if (active.length > 0) {
@@ -608,7 +605,11 @@ function bindListeners() {
 
 		this.DOM.headerKeys.forEach(node => {
 			node.addEventListener('blur', () => {
-				messageWorker('mod-headers', { headers: this.getHeaders() });
+				const data = this.getHeaders();
+				const active = data.filter(obj => obj.enabled);
+				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data });
 			});
 		});
 
@@ -622,7 +623,11 @@ function bindListeners() {
 
 		this.DOM.headerValues.forEach(node => {
 			node.addEventListener('blur', () => {
-				messageWorker('mod-headers', { headers: this.getHeaders() });
+				const data = this.getHeaders();
+				const active = data.filter(obj => obj.enabled);
+				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data });
 			});
 		});
 
@@ -639,7 +644,6 @@ function bindListeners() {
 		});
 
 		// REMOVE HEADER
-		// @ts-ignore
 		this.DOM.deletePairs.forEach((node, index) => {
 			node.addEventListener('click', (clickEv) => {
 				let row = clickEv.target.closest('.row');
@@ -730,17 +734,18 @@ function flipIntegers(obj) {
 function getHeaders() {
 	const data = [];
 	//always live query the DOM
+
+	/** @type {NodeListOf<HTMLInputElement>} */
 	const headerKeys = document.querySelectorAll('.headerKey');
+	/** @type {NodeListOf<HTMLInputElement>} */
 	const headerValues = document.querySelectorAll('.headerValue');
+	/** @type {NodeListOf<HTMLInputElement>} */
 	const checkPairs = document.querySelectorAll('.checkPair');
+
 	headerKeys.forEach((key, index) => {
-		// @ts-ignore
 		const value = headerValues[index].value.trim();
-		// @ts-ignore
 		if (key.value.trim() !== '' && value !== '') {
-			// @ts-ignore
 			const checked = checkPairs[index].checked;
-			// @ts-ignore
 			data.push({ [key.value]: value, enabled: checked });
 		}
 	});
@@ -876,8 +881,22 @@ function analytics() {
 }
 
 function track(event, data = {}) {
+	let props = {};
+	//serialize errors so they don't just become {};
+	for (const key in data) {
+		if (data[key] instanceof Error) {
+			props.error = {
+				message: data[key].message,
+				stack: data[key].stack
+			};
+		}
+		else {
+			props[key] = data[key];
+		}
+	}
+
 	try {
-		mixpanel.track(event, data);
+		mixpanel.track(event, props);
 	}
 	catch (e) {
 		console.error('mp-tweaks: failed to track', e);
