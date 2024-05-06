@@ -30,8 +30,8 @@ const APP = {
 	init: function () {
 		this.cacheDOM();
 		this.getStorage().then(() => {
-			this.loadInterface();
 			this.bindListeners();
+			this.loadInterface();			
 			this.listenForWorker();
 			this.analytics();
 
@@ -156,6 +156,7 @@ async function setStorage(data) {
 
 // listen for messages from the worker
 function listenForWorker() {
+	// @ts-ignore
 	chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
 		console.log("mp-tweaks: received message", message);
 
@@ -177,7 +178,6 @@ function listenForWorker() {
 			case "mod-headers":
 				break;
 			case "make-project":
-				// this is handled in the interface
 				break;
 			default:
 				track('error: listenForWorker', { message });
@@ -222,6 +222,7 @@ function queryBuilderHandleCatch(data) {
 	this.DOM.rawDataTextField.classList.remove('hidden');
 	this.DOM.randomize.classList.add('hidden');
 	this.DOM.saveChartData.classList.remove('hidden');
+	// @ts-ignore
 	const region = data?.region || 'us'; //todo
 	let reportName = data?.report_query_origin || data?.tracking_props?.report_name;
 	if (reportName === 'flows') reportName = 'arb_funnels';
@@ -354,27 +355,28 @@ function loadInterface() {
 
 		//EZTrack labels + token
 		if (EZTrack.token) this.DOM.EZTrackToken.value = EZTrack.token;
-		this.DOM.EZTrackLabel.classList.remove('hidden');
 		if (EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${STORAGE?.EZTrack?.tabId || ""})`;
 		if (!EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `DISABLED`;
 
 		//session replay labels + token
 		if (sessionReplay.token) this.DOM.sessionReplayToken.value = sessionReplay.token;
-		this.DOM.sessionReplayLabel.classList.remove('hidden');
 		if (sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `ENABLED (tab #${STORAGE?.sessionReplay?.tabId || ""})`;
 		if (!sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `DISABLED`;
 
 		//mod header
 		if (modHeaders.enabled) this.DOM.modHeaderStatus.textContent = `ENABLED`;
 		else this.DOM.modHeaderStatus.textContent = `DISABLED`;
-		this.DOM.modHeaderLabel.classList.remove('hidden');
-		//hack to deal with more than 3...
+
+		//hack to deal with more than 3 headers...
 		if (modHeaders.headers.length > 3) {
 			const numClicks = modHeaders.headers.length - 3;
 			for (let i = 0; i < numClicks; i++) {
 				this.DOM.addHeader.click(); //yea i know...
+				this.cacheDOM(); //re-cache the DOM
 			}
 		}
+
+		//load headers
 		modHeaders.headers.forEach((obj, index) => {
 			const { enabled, ...header } = obj;
 			this.DOM.checkPairs[index].checked = enabled;
@@ -391,8 +393,9 @@ function loadInterface() {
 
 function bindListeners() {
 	try {
-		//TOGGLES
+		//FEATURE FLAGS
 		this.DOM.toggles.forEach(function (checkbox) {
+			// @ts-ignore
 			checkbox.addEventListener('click', function (event) {
 				const data = APP.getCheckbox();
 				setStorage({ 'persistScripts': data }).then(() => { });
@@ -431,6 +434,7 @@ function bindListeners() {
 
 		});
 
+		// QUERY API BUILDER
 		this.DOM.buildChartPayload.addEventListener('click', () => {
 			this.DOM.fetchChartData.classList.add('hidden');
 			console.log('mp-tweaks: catch-request');
@@ -535,6 +539,14 @@ function bindListeners() {
 			messageWorker('stop-eztrack');
 		});
 
+		this.DOM.EZTrackToken.addEventListener('input', () => {
+			const token = this.DOM.EZTrackToken.value;
+			if (token !== STORAGE.EZTrack.token) {
+				setStorage({ EZTrack: { token, enabled: false } });
+			}
+		});
+
+
 		//SESSION REPLAY
 
 		//autosave
@@ -565,55 +577,79 @@ function bindListeners() {
 		});
 
 		// MOD HEADER
+
+		//refresh button
 		this.DOM.saveHeaders.addEventListener('click', () => {
 			const data = this.getHeaders();
 			const active = data.filter(obj => obj.enabled);
 			if (active.length === 0) {
 				this.DOM.modHeaderStatus.textContent = `DISABLED`;
-				messageWorker('reset-headers').then(() => {
-					messageWorker('reload');
-				});
+				messageWorker('reset-headers');
+				setTimeout(() => { messageWorker('reload'); }, 250);
+
+
 
 			}
 
-			else {
+			if (active.length > 0) {
 				this.DOM.modHeaderStatus.textContent = `ENABLED`;
-				messageWorker('mod-headers', { headers: data }).then(() => {
-					messageWorker('reload');
-				});
+				messageWorker('mod-headers', { headers: data });
+				setTimeout(() => { messageWorker('reload'); }, 250);
 
 			}
 		});
 
-		// AUTO SAVE KEYS
+		// user input keys
 		this.DOM.headerKeys.forEach(node => {
 			node.addEventListener('input', () => {
+				messageWorker('store-headers', { headers: this.getHeaders() });
+			});
+		});
+
+		this.DOM.headerKeys.forEach(node => {
+			node.addEventListener('blur', () => {
 				messageWorker('mod-headers', { headers: this.getHeaders() });
 			});
 		});
 
-		// AUTO SAVE VALUES
+
+		// user input values
 		this.DOM.headerValues.forEach(node => {
 			node.addEventListener('input', () => {
+				messageWorker('store-headers', { headers: this.getHeaders() });
+			});
+		});
+
+		this.DOM.headerValues.forEach(node => {
+			node.addEventListener('blur', () => {
 				messageWorker('mod-headers', { headers: this.getHeaders() });
 			});
 		});
 
-		// AUTO SAVE CHECKBOXES
+
+		// changing checkbox
 		this.DOM.checkPairs.forEach(node => {
 			node.addEventListener('change', () => {
-				messageWorker('mod-headers', { headers: this.getHeaders() });
+				const data = this.getHeaders();
+				const active = data.filter(obj => obj.enabled);
+				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data });
 			});
 		});
 
 		// REMOVE HEADER
+		// @ts-ignore
 		this.DOM.deletePairs.forEach((node, index) => {
 			node.addEventListener('click', (clickEv) => {
 				let row = clickEv.target.closest('.row');
 				if (row) this.DOM.userHeaders.removeChild(row);
-				messageWorker('mod-headers', { headers: this.getHeaders() }).then(() => {
-					messageWorker('reload');
-				});
+				const data = this.getHeaders();
+				const active = data.filter(obj => obj.enabled);
+				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data });
+				setTimeout(() => { messageWorker('reload'); }, 250);
 			});
 		});
 
@@ -624,9 +660,12 @@ function bindListeners() {
 
 		// RESET
 		this.DOM.clearHeaders.addEventListener('click', () => {
-			this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder'));
+			this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder') || "");
 			this.DOM.headerValues.forEach(node => node.value = "");
+			this.DOM.checkPairs.forEach(node => node.checked = false);
 			this.DOM.modHeaderStatus.textContent = `DISABLED`;
+			const additionalRows = Array.from(this.DOM.userHeaders).slice(3);
+			additionalRows.forEach(row => row.remove());
 			messageWorker('reset-headers');
 		});
 
@@ -690,10 +729,18 @@ function flipIntegers(obj) {
 
 function getHeaders() {
 	const data = [];
-	this.DOM.headerKeys.forEach((key, index) => {
-		const value = this.DOM.headerValues[index].value.trim();
+	//always live query the DOM
+	const headerKeys = document.querySelectorAll('.headerKey');
+	const headerValues = document.querySelectorAll('.headerValue');
+	const checkPairs = document.querySelectorAll('.checkPair');
+	headerKeys.forEach((key, index) => {
+		// @ts-ignore
+		const value = headerValues[index].value.trim();
+		// @ts-ignore
 		if (key.value.trim() !== '' && value !== '') {
-			const checked = this.DOM.checkPairs[index].checked;
+			// @ts-ignore
+			const checked = checkPairs[index].checked;
+			// @ts-ignore
 			data.push({ [key.value]: value, enabled: checked });
 		}
 	});
@@ -717,24 +764,43 @@ function addHeaderRow() {
 	this.DOM.userHeaders.appendChild(row);
 
 	// Add event listeners
-	row?.querySelector('.deletePair')?.addEventListener('click', () => {
-		row.remove(); // Remove the row
-		messageWorker('mod-headers', { headers: this.getHeaders() }).then(() => {
-			messageWorker('reload');
-		});
-	});
 
 	row?.querySelector('.headerKey')?.addEventListener('input', () => {
-		messageWorker('mod-headers', { headers: this.getHeaders() });
+		messageWorker('store-headers', { headers: this.getHeaders() });
 	});
 
 	row?.querySelector('.headerValue')?.addEventListener('input', () => {
+		messageWorker('store-headers', { headers: this.getHeaders() });
+	});
+
+	row?.querySelector('.headerKey')?.addEventListener('blur', () => {
+		messageWorker('mod-headers', { headers: this.getHeaders() });
+	});
+
+	row?.querySelector('.headerValue')?.addEventListener('blur', () => {
 		messageWorker('mod-headers', { headers: this.getHeaders() });
 	});
 
 	row?.querySelector('.checkPair')?.addEventListener('change', () => {
-		messageWorker('mod-headers', { headers: this.getHeaders() });
+		const data = this.getHeaders();
+		const active = data.filter(obj => obj.enabled);
+		if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+		if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+		messageWorker('mod-headers', { headers: data });
 	});
+
+	row?.querySelector('.deletePair')?.addEventListener('click', () => {
+		row.remove(); // Remove the row
+		const data = this.getHeaders();
+		const active = data.filter(obj => obj.enabled);
+		if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+		if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+		messageWorker('mod-headers', { headers: data }).then(() => {
+			messageWorker('reload');
+		});
+	});
+
+
 }
 
 
@@ -764,6 +830,7 @@ function analytics() {
 	mixpanel.init("99526f575a41223fcbadd9efdd280c7e", {
 		persistence: 'localStorage',
 		api_host: "https://api.mixpanel.com",
+		cross_site_cookie: true,
 		window: {
 			navigator: {
 				doNotTrack: '0'

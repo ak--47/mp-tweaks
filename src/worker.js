@@ -3,7 +3,7 @@
 let STORAGE;
 let cachedFlags = null;
 
-let tracker = noop;
+let track = noop;
 
 const APP_VERSION = `2.21`;
 const SCRIPTS = {
@@ -48,7 +48,7 @@ async function init() {
 		if (user.email) {
 			STORAGE.whoami = user;
 			const { email, name } = user;
-			tracker = analytics(email, { component: "worker", name, $email: email });
+			track = analytics(email, { component: "worker", name, $email: email, version: APP_VERSION });
 		}
 		await setStorage(STORAGE);
 	}
@@ -72,6 +72,7 @@ HOOKS
 //install
 chrome.runtime.onInstalled.addListener(() => {
 	console.log('mp-tweaks: Extension Installed');
+	track('install');
 	return true;
 });
 
@@ -138,6 +139,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 		})
 		.catch(error => {
 			console.error('Error handling request:', error);
+			track('handleRequestError', { request, error: error.message });
 			sendResponse({ error: error.message });
 		});
 
@@ -230,24 +232,28 @@ async function handleRequest(request) {
 			await runScript(reload);
 			break;
 
+		//update headers and call updateHeaders
 		case 'mod-headers':
 			const headers = request.data.headers;
-			if (haveSameShape(headers, STORAGE.modHeaders.headers)) {
+			STORAGE.modHeaders.headers = headers;
+			if (headers.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
+			else STORAGE.modHeaders.enabled = false;
+			await setStorage(STORAGE);
+			result = await updateHeaders(headers);
+			break;
+
+		//update state of UI component but don't call updateHeaders
+		case 'store-headers':
+			const newHeaders = request.data.headers;
+			if (areEqual(newHeaders, STORAGE.modHeaders.headers)) {
 				console.log('mp-tweaks: headers unchanged');
 				result = null;
 				break;
 			}
-			STORAGE.modHeaders.headers = headers;
-			if (Array.isArray(headers)) {
-				if (headers.some(h => h.enabled)) {
-					STORAGE.modHeaders.enabled = true;
-				}
-				else {
-					STORAGE.modHeaders.enabled = false;
-				}
-			}
-			await setStorage(STORAGE);
-			result = await updateHeaders(headers);
+			STORAGE.modHeaders.headers = newHeaders;
+			if (newHeaders.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
+			else STORAGE.modHeaders.enabled = false;
+			result = await setStorage(STORAGE);
 			break;
 
 		case 'reset-headers':
@@ -269,6 +275,7 @@ async function handleRequest(request) {
 
 		default:
 			console.error("mp-tweaks: unknown action", request);
+			track('unknown-action', { request: request });
 			result = "Unknown action";
 	}
 	return result;
@@ -308,6 +315,8 @@ async function updateHeaders(headers = [{ "foo": "bar", enabled: false }]) {
 					value: Object.values(o)[0]
 				};
 			});
+
+		if (requestHeaders.length === 0) return await removeHeaders();
 
 		const update = await chrome.declarativeNetRequest.updateDynamicRules({
 			removeRuleIds: [1],  // Clear the previous rule if it exists
@@ -658,11 +667,16 @@ function haveSameShape(obj1, obj2) {
 	return true;
 }
 
+// turn objects into strings and compare; this isn't perfect but it's good enough for our purposes
+function areEqual(obj1, obj2) {
+	return JSON.stringify(obj1) === JSON.stringify(obj2);
+}
+
 function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function noop() { }
+function noop(...vary) { }
 
 /*
 ----
@@ -777,42 +791,48 @@ async function getUser() {
 
 function analytics(user_id, superProps = {}, token = "99526f575a41223fcbadd9efdd280c7e", url = "https://api.mixpanel.com/track?verbose=1") {
 	return function (eventName = "ping", props = {}, callback = (res) => { }) {
-		const headers = {
-			"Content-Type": "application/json",
-			"Accept": "text/plain",
-		};
-		const payload = JSON.stringify([
-			{
-				event: eventName,
-				properties: {
-					token: token,
-					$user_id: user_id,
-					...superProps,
-					...props,
+		try {
+			const headers = {
+				"Content-Type": "application/json",
+				"Accept": "text/plain",
+			};
+			const payload = JSON.stringify([
+				{
+					event: eventName,
+					properties: {
+						token: token,
+						$user_id: user_id,
+						...superProps,
+						...props,
+					}
 				}
-			}
-		]);
+			]);
 
-		fetch(url, {
-			method: 'POST',
-			headers: headers,
-			body: payload
-		})
-			.then(response => response.text())  // Assuming the response is text (plain or JSON)
-			.then(text => {
-				try {
-					// Attempt to parse it as JSON
-					const jsonData = JSON.parse(text);
-					callback(jsonData);  // Passing back as an array for consistency with your original function
-				} catch (error) {
-					// If it's not JSON, pass the raw response
-					callback(text);
-				}
+			fetch(url, {
+				method: 'POST',
+				headers: headers,
+				body: payload
 			})
-			.catch(error => {
-				console.error('mp-tweaks: analytics error; event:', eventName, 'props:', props, 'error', error);
-				callback({});  // Invoke the callback with empty array to indicate failure
-			});
+				.then(response => response.text())  // Assuming the response is text (plain or JSON)
+				.then(text => {
+					try {
+						// Attempt to parse it as JSON
+						const jsonData = JSON.parse(text);
+						callback(jsonData);  // Passing back as an array for consistency with your original function
+					} catch (error) {
+						// If it's not JSON, pass the raw response
+						callback(text);
+					}
+				})
+				.catch(error => {
+					console.error('mp-tweaks: analytics error; event:', eventName, 'props:', props, 'error', error);
+					callback({});  // Invoke the callback with empty array to indicate failure
+				});
+		}
+		catch (err) {
+			console.error('mp-tweaks: analytics error; event:', eventName, 'props:', props, 'error', err);
+			callback({});
+		}
 	};
 }
 
