@@ -24,6 +24,18 @@
 		<!-- REST OF APP -->
 		<div id="main" class="hidden">
 
+		<!-- MOD HEADER -->
+		<div id="modHeader" class="section">
+		<h2 class="lower">Mod Header</h2>
+		<p class="small">inject <b>custom headers</b> into <b>all requests</b> for <b>all tabs</b> &emsp; &emsp; &emsp; <span id="modHeaderLabel" class="statusText">mod header is: <b>FOO</b></span></p>
+		<div class="controls" id="userHeaders">
+			<div class="row"><input class="checkPair" type="checkbox"/> <input class="headerKey" placeholder="x-imp" value="x-imp" type="text"/> : <input class="headerValue" type="text"/> <button class="deletePair">-</button> <br/></div>
+			<div class="row"><input class="checkPair" type="checkbox"/> <input class="headerKey" placeholder="x-profile" value="x-profile" type="text"/> : <input class="headerValue" type="text"/> <button class="deletePair">-</button> <br/></div>
+			<div class="row"><input class="checkPair" type="checkbox"/> <input class="headerKey" placeholder="x-assets-commit" value="x-assets-commit" type="text"/> : <input class="headerValue" type="text"/> <button class="deletePair">-</button> <br/></div>					
+		</div>
+		&emsp; &emsp;<button id="addHeader">+</button>&emsp; &emsp; &emsp; &emsp; &emsp;<button id="saveHeaders">refresh</button> : <button id="clearHeaders">clear</button><br/>
+		</div>
+	
 		<!-- FEATURE FLAGS -->
 		<div id="perTab" class="section">
 			<h2 class="lower">Feature Flags</h2>
@@ -33,20 +45,6 @@
 			<button class="button fa remove" id="removeAll">REMOVE ALL FLAGS</button>
 		</div>
 
-		<!-- MOD HEADER -->
-		<div id="modHeader" class="section">
-		<h2 class="lower">Mod Header</h2>
-		<p class="small">inject <b>custom headers</b> into <b>all requests</b> for <b>all tabs</b>&emsp; &emsp; &emsp; <span id="modHeaderLabel" class="statusText hidden">mod header is: <b>FOO</b></span></p>
-		<div class="controls" id="userHeaders">
-			<input class="headerKey" placeholder="x-imp" value="x-imp" type="text"/> : <input class="headerValue" type="text"/> <br/>
-			<input class="headerKey" placeholder="x-profile" value="x-profile" type="text"/> : <input class="headerValue" type="text"/> <br/>
-			<input class="headerKey" placeholder="x-assets-commit" value="x-assets-commit" type="text"/> : <input class="headerValue" type="text"/> <br/>
-			<button class="button fa" id="saveHeaders">APPLY</button>
-			<button class="button fa remove" id="clearHeaders">CLEAR</button>
-		</div>
-		</div>
-	
-	
 
 		<!-- SESSION REPLAY -->
 		<div id="sessionReplay" class="section">

@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.21`;
+const APP_VERSION = `2.22`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 
 const APP = {
@@ -26,11 +26,12 @@ const APP = {
 	listenForWorker,
 	dataEditorHandleCatch,
 	queryBuilderHandleCatch,
+	getHeaders,
 	init: function () {
 		this.cacheDOM();
 		this.getStorage().then(() => {
-			this.loadInterface();
 			this.bindListeners();
+			this.loadInterface();
 			this.listenForWorker();
 			this.analytics();
 
@@ -86,7 +87,7 @@ function sleep(ms) {
 async function fetchCSV(url) {
 	try {
 		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), 3000);
+		const timeout = setTimeout(() => controller.abort('timeout'), 3000);
 
 		const response = await fetch(url, { signal: controller.signal });
 		const text = await response.text();
@@ -116,7 +117,7 @@ async function messageWorker(action, data) {
 		console.log('Response from worker:', response);
 		return response;
 	} catch (error) {
-		track('error: messageWorker', { error });
+		track('error: messageWorker', { action, error });
 		console.error('Error:', error);
 	}
 
@@ -155,6 +156,7 @@ async function setStorage(data) {
 
 // listen for messages from the worker
 function listenForWorker() {
+	// @ts-ignore
 	chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
 		console.log("mp-tweaks: received message", message);
 
@@ -176,7 +178,11 @@ function listenForWorker() {
 			case "mod-headers":
 				break;
 			case "make-project":
-				// this is handled in the interface
+				break;
+			case "nuke-cookies":
+				alert(`Deleted ${message.data || "zero "} mixpanel.com cookies`);
+				break;
+			case "reload":
 				break;
 			default:
 				track('error: listenForWorker', { message });
@@ -221,6 +227,7 @@ function queryBuilderHandleCatch(data) {
 	this.DOM.rawDataTextField.classList.remove('hidden');
 	this.DOM.randomize.classList.add('hidden');
 	this.DOM.saveChartData.classList.remove('hidden');
+	// @ts-ignore
 	const region = data?.region || 'us'; //todo
 	let reportName = data?.report_query_origin || data?.tracking_props?.report_name;
 	if (reportName === 'flows') reportName = 'arb_funnels';
@@ -259,7 +266,7 @@ function setCheckbox(state) {
 
 function getCheckbox() {
 	const persistScript = [];
-	this.DOM.checkboxes.forEach(function (checkbox) {
+	this.DOM.toggles.forEach(function (checkbox) {
 		if (checkbox.checked) persistScript.push(checkbox.id);
 	});
 
@@ -269,18 +276,21 @@ function getCheckbox() {
 function cacheDOM() {
 	//main
 	this.DOM.main = document.querySelector('#main');
-	this.DOM.perTab = document.querySelector('#perTab');
-	this.DOM.checkboxes = document.querySelectorAll('.toggle');
 	this.DOM.loader = document.getElementById('loader');
 
-	//toggles
+	//feature flags
+	this.DOM.perTab = document.querySelector('#perTab');
+	this.DOM.buttonWrapper = document.querySelector('#buttons');
+	this.DOM.removeAll = document.querySelector('#removeAll');
+
+	//persistent scripts	
+	this.DOM.toggles = document.querySelectorAll('.toggle');
 	this.DOM.persistentOptions = document.querySelector('#persistentOptions');
 	this.DOM.hideBanners = document.querySelector('#hideBanners');
 	this.DOM.renameTabs = document.querySelector('#renameTabs');
 	this.DOM.hundredX = document.querySelector('#hundredX');
 
-	//buttons
-	this.DOM.buttonWrapper = document.querySelector('#buttons');
+	//chart fetcher + api maker	
 	this.DOM.fetchChartData = document.querySelector('#fetchChartData');
 	this.DOM.buildChartPayload = document.querySelector('#buildChartPayload');
 	this.DOM.postChartData = document.querySelector('#postChartData');
@@ -289,39 +299,44 @@ function cacheDOM() {
 	this.DOM.rawDataTextField = document.querySelector('#rawData');
 	this.DOM.randomize = document.querySelector('#randomize');
 	this.DOM.saveChartData = document.querySelector('#saveChartData');
-	this.DOM.makeProject = document.querySelector('#makeProject');
-	this.DOM.projectDetails = document.querySelector('#projectDetails textarea');
-	this.DOM.makeProjectSpinner = document.querySelector('#makeProjectSpinner');
-	this.DOM.removeAll = document.querySelector('#removeAll');
-	this.DOM.startEZTrack = document.querySelector('#startEZTrack');
-	this.DOM.stopEZTrack = document.querySelector('#stopEZTrack');
-	this.DOM.startReplay = document.querySelector('#startReplay');
-	this.DOM.stopReplay = document.querySelector('#stopReplay');
-	this.DOM.nukeCookies = document.querySelector('#nukeCookies');
-
-	//inputs
-	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
-	this.DOM.sessionReplayToken = document.querySelector('#sessionReplayToken');
-
-	//error messages
 	this.DOM.contextError = document.querySelector('#contextError');
 	this.DOM.jsonError = document.querySelector('#badJSON');
 
-	//labels
+	//project creator
+	this.DOM.makeProject = document.querySelector('#makeProject');
+	this.DOM.projectDetails = document.querySelector('#projectDetails textarea');
+	this.DOM.makeProjectSpinner = document.querySelector('#makeProjectSpinner');
 	this.DOM.orgLabel = document.querySelector('#orgLabel');
 	this.DOM.orgPlaceholder = document.querySelector('#orgLabel b');
+
+	//EZTrack
+	this.DOM.startEZTrack = document.querySelector('#startEZTrack');
+	this.DOM.stopEZTrack = document.querySelector('#stopEZTrack');
+	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
 	this.DOM.EZTrackLabel = document.querySelector('#EZTrackLabel');
 	this.DOM.EZTrackStatus = document.querySelector('#EZTrackLabel b');
+
+	//session replay
+	this.DOM.startReplay = document.querySelector('#startReplay');
+	this.DOM.stopReplay = document.querySelector('#stopReplay');
+	this.DOM.sessionReplayToken = document.querySelector('#sessionReplayToken');
 	this.DOM.sessionReplayLabel = document.querySelector('#sessionReplayLabel');
 	this.DOM.sessionReplayStatus = document.querySelector('#sessionReplayLabel b');
 
+	//odds and ends
+	this.DOM.nukeCookies = document.querySelector('#nukeCookies');
+
 	//headers
+	this.DOM.checkPairs = document.querySelectorAll('.checkPair');
+	this.DOM.deletePairs = document.querySelectorAll('.deletePair');
 	this.DOM.headerKeys = document.querySelectorAll('.headerKey');
 	this.DOM.headerValues = document.querySelectorAll('.headerValue');
 	this.DOM.saveHeaders = document.querySelector('#saveHeaders');
 	this.DOM.clearHeaders = document.querySelector('#clearHeaders');
 	this.DOM.modHeaderLabel = document.querySelector('#modHeaderLabel');
 	this.DOM.modHeaderStatus = document.querySelector('#modHeaderLabel b');
+	this.DOM.addHeader = document.querySelector('#addHeader');
+	this.DOM.userHeaders = document.querySelector('#userHeaders');
 
 }
 
@@ -345,21 +360,31 @@ function loadInterface() {
 
 		//EZTrack labels + token
 		if (EZTrack.token) this.DOM.EZTrackToken.value = EZTrack.token;
-		this.DOM.EZTrackLabel.classList.remove('hidden');
 		if (EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${STORAGE?.EZTrack?.tabId || ""})`;
 		if (!EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `DISABLED`;
 
 		//session replay labels + token
 		if (sessionReplay.token) this.DOM.sessionReplayToken.value = sessionReplay.token;
-		this.DOM.sessionReplayLabel.classList.remove('hidden');
 		if (sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `ENABLED (tab #${STORAGE?.sessionReplay?.tabId || ""})`;
 		if (!sessionReplay.enabled) this.DOM.sessionReplayStatus.textContent = `DISABLED`;
 
 		//mod header
 		if (modHeaders.enabled) this.DOM.modHeaderStatus.textContent = `ENABLED`;
 		else this.DOM.modHeaderStatus.textContent = `DISABLED`;
-		this.DOM.modHeaderLabel.classList.remove('hidden');
-		modHeaders.headers.forEach((header, index) => {
+
+		//hack to deal with more than 3 headers...
+		if (modHeaders.headers.length > 3) {
+			const numClicks = modHeaders.headers.length - 3;
+			for (let i = 0; i < numClicks; i++) {
+				this.DOM.addHeader.click(); //yea i know...
+				this.cacheDOM(); //re-cache the DOM
+			}
+		}
+
+		//load headers
+		modHeaders.headers.forEach((obj, index) => {
+			const { enabled, ...header } = obj;
+			this.DOM.checkPairs[index].checked = enabled;
 			this.DOM.headerKeys[index].value = Object.keys(header)[0];
 			this.DOM.headerValues[index].value = Object.values(header)[0];
 		});
@@ -373,8 +398,9 @@ function loadInterface() {
 
 function bindListeners() {
 	try {
-		//TOGGLES
-		this.DOM.checkboxes.forEach(function (checkbox) {
+		//FEATURE FLAGS
+		this.DOM.toggles.forEach(function (checkbox) {
+			// @ts-ignore
 			checkbox.addEventListener('click', function (event) {
 				const data = APP.getCheckbox();
 				setStorage({ 'persistScripts': data }).then(() => { });
@@ -413,6 +439,7 @@ function bindListeners() {
 
 		});
 
+		// QUERY API BUILDER
 		this.DOM.buildChartPayload.addEventListener('click', () => {
 			this.DOM.fetchChartData.classList.add('hidden');
 			console.log('mp-tweaks: catch-request');
@@ -517,7 +544,26 @@ function bindListeners() {
 			messageWorker('stop-eztrack');
 		});
 
+		this.DOM.EZTrackToken.addEventListener('input', () => {
+			const token = this.DOM.EZTrackToken.value;
+			if (token !== STORAGE.EZTrack.token) {
+				setStorage({ EZTrack: { token, enabled: false } });
+			}
+		});
+
+
 		//SESSION REPLAY
+
+		//autosave
+		this.DOM.sessionReplayToken.addEventListener('input', () => {
+			const token = this.DOM.sessionReplayToken.value;
+			if (token !== STORAGE.sessionReplay.token) {
+				setStorage({ sessionReplay: { token, enabled: false } });
+			}
+		});
+
+
+		//start
 		this.DOM.startReplay.addEventListener('click', async () => {
 			const token = this.DOM.sessionReplayToken.value;
 			if (!token) {
@@ -529,30 +575,106 @@ function bindListeners() {
 			messageWorker('start-replay', { token, tabId });
 		});
 
+		//stop
 		this.DOM.stopReplay.addEventListener('click', () => {
 			this.DOM.sessionReplayStatus.textContent = `DISABLED`;
 			messageWorker('stop-replay');
 		});
 
 		// MOD HEADER
+
+		//refresh button
 		this.DOM.saveHeaders.addEventListener('click', () => {
-			const data = [];
-			this.DOM.headerKeys.forEach((key, index) => {
-				const value = this.DOM.headerValues[index].value.trim();
-				if (key.value.trim() !== '' && value !== '') {
-					data.push({ [key.value]: value });
-				}
-			});
-			this.DOM.modHeaderStatus.textContent = `ENABLED`;
-			this.DOM.modHeaderLabel.classList.remove('hidden');
-			messageWorker('mod-headers', { headers: data });
+			const data = this.getHeaders();
+			const active = data.filter(obj => obj.enabled);
+			if (active.length === 0) {
+				this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				messageWorker('reset-headers');
+				setTimeout(() => { messageWorker('reload'); }, 250);
+			}
+
+			if (active.length > 0) {
+				this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data });
+				setTimeout(() => { messageWorker('reload'); }, 250);
+
+			}
 		});
 
+		// user input keys
+		this.DOM.headerKeys.forEach(node => {
+			node.addEventListener('input', () => {
+				messageWorker('store-headers', { headers: this.getHeaders() });
+			});
+		});
+
+		this.DOM.headerKeys.forEach(node => {
+			node.addEventListener('blur', () => {
+				const data = this.getHeaders();
+				const active = data.filter(obj => obj.enabled);
+				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data });
+			});
+		});
+
+
+		// user input values
+		this.DOM.headerValues.forEach(node => {
+			node.addEventListener('input', () => {
+				messageWorker('store-headers', { headers: this.getHeaders() });
+			});
+		});
+
+		this.DOM.headerValues.forEach(node => {
+			node.addEventListener('blur', () => {
+				const data = this.getHeaders();
+				const active = data.filter(obj => obj.enabled);
+				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data });
+			});
+		});
+
+
+		// changing checkbox
+		this.DOM.checkPairs.forEach(node => {
+			node.addEventListener('change', () => {
+				const data = this.getHeaders();
+				const active = data.filter(obj => obj.enabled);
+				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data });
+			});
+		});
+
+		// REMOVE HEADER
+		this.DOM.deletePairs.forEach((node, index) => {
+			node.addEventListener('click', (clickEv) => {
+				let row = clickEv.target.closest('.row');
+				if (row) this.DOM.userHeaders.removeChild(row);
+				const data = this.getHeaders();
+				const active = data.filter(obj => obj.enabled);
+				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+				messageWorker('mod-headers', { headers: data });
+				setTimeout(() => { messageWorker('reload'); }, 250);
+			});
+		});
+
+		// ADD HEADER
+		this.DOM.addHeader.addEventListener('click', () => {
+			addHeaderRow.bind(this)();
+		});
+
+		// RESET
 		this.DOM.clearHeaders.addEventListener('click', () => {
-			this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder'));
+			this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder') || "");
 			this.DOM.headerValues.forEach(node => node.value = "");
+			this.DOM.checkPairs.forEach(node => node.checked = false);
 			this.DOM.modHeaderStatus.textContent = `DISABLED`;
-			this.DOM.modHeaderLabel.classList.remove('hidden');
+			const additionalRows = Array.from(this.DOM.userHeaders).slice(3);
+			additionalRows.forEach(row => row.remove());
 			messageWorker('reset-headers');
 		});
 
@@ -614,6 +736,84 @@ function flipIntegers(obj) {
 	return obj;
 }
 
+function getHeaders() {
+	const data = [];
+	//always live query the DOM
+
+	/** @type {NodeListOf<HTMLInputElement>} */
+	const headerKeys = document.querySelectorAll('.headerKey');
+	/** @type {NodeListOf<HTMLInputElement>} */
+	const headerValues = document.querySelectorAll('.headerValue');
+	/** @type {NodeListOf<HTMLInputElement>} */
+	const checkPairs = document.querySelectorAll('.checkPair');
+
+	headerKeys.forEach((key, index) => {
+		const value = headerValues[index].value.trim();
+		if (key.value.trim() !== '' && value !== '') {
+			const checked = checkPairs[index].checked;
+			data.push({ [key.value]: value, enabled: checked });
+		}
+	});
+
+	return data;
+}
+
+function addHeaderRow() {
+	/** @type {HTMLDivElement} */
+	const row = document.createElement('div');
+	row.className = 'row';
+	row.innerHTML = `
+        <input class="checkPair" type="checkbox"/> 
+        <input class="headerKey" type="text"/> : 
+        <input class="headerValue" type="text"/> 
+        <button class="deletePair">-</button>
+        <br/>
+    `;
+
+	// Append to the container
+	this.DOM.userHeaders.appendChild(row);
+
+	// Add event listeners
+
+	row?.querySelector('.headerKey')?.addEventListener('input', () => {
+		messageWorker('store-headers', { headers: this.getHeaders() });
+	});
+
+	row?.querySelector('.headerValue')?.addEventListener('input', () => {
+		messageWorker('store-headers', { headers: this.getHeaders() });
+	});
+
+	row?.querySelector('.headerKey')?.addEventListener('blur', () => {
+		messageWorker('mod-headers', { headers: this.getHeaders() });
+	});
+
+	row?.querySelector('.headerValue')?.addEventListener('blur', () => {
+		messageWorker('mod-headers', { headers: this.getHeaders() });
+	});
+
+	row?.querySelector('.checkPair')?.addEventListener('change', () => {
+		const data = this.getHeaders();
+		const active = data.filter(obj => obj.enabled);
+		if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+		if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+		messageWorker('mod-headers', { headers: data });
+	});
+
+	row?.querySelector('.deletePair')?.addEventListener('click', () => {
+		row.remove(); // Remove the row
+		const data = this.getHeaders();
+		const active = data.filter(obj => obj.enabled);
+		if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
+		if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
+		messageWorker('mod-headers', { headers: data }).then(() => {
+			messageWorker('reload');
+		});
+	});
+
+
+}
+
+
 function filterObj(hash, test_function, keysOrValues = "value") {
 	let key, i;
 	const iterator = Object.keys(hash);
@@ -640,6 +840,7 @@ function analytics() {
 	mixpanel.init("99526f575a41223fcbadd9efdd280c7e", {
 		persistence: 'localStorage',
 		api_host: "https://api.mixpanel.com",
+		cross_site_cookie: true,
 		window: {
 			navigator: {
 				doNotTrack: '0'
@@ -655,7 +856,8 @@ function analytics() {
 					mixpanel.register({
 						"$email": whoami.email,
 						"version": APP.currentVersion,
-						"name": whoami.name
+						"name": whoami.name,
+						"component": "frontend"
 					});
 					mixpanel.people.set({ "$name": whoami.name, "$email": whoami.email });
 					mixpanel.people.set_once({ "$created": new Date().toISOString() });
@@ -684,8 +886,25 @@ function analytics() {
 }
 
 function track(event, data = {}) {
+	let props = {};
+	//serialize errors so they don't just become {};
+	for (const key in data) {
+		if (data[key] instanceof Error) {
+			props.error = {
+				message: data[key]?.message || "",
+				stack: data[key]?.stack || "",
+				name: data[key]?.name || "",
+				file: data[key]?.fileName || "",
+				line: data[key]?.lineNumber || ""
+			};
+		}
+		else {
+			props[key] = data[key];
+		}
+	}
+
 	try {
-		mixpanel.track(event, data);
+		mixpanel.track(event, props);
 	}
 	catch (e) {
 		console.error('mp-tweaks: failed to track', e);
@@ -719,4 +938,14 @@ async function captureCurrentTabId() {
 			}
 		});
 	});
+}
+
+try {
+	if (window) {
+		window.APP = APP;
+	}
+}
+
+catch (e) {
+	//noop
 }
