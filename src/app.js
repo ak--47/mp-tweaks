@@ -87,7 +87,7 @@ function sleep(ms) {
 async function fetchCSV(url) {
 	try {
 		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), 3000);
+		const timeout = setTimeout(() => controller.abort('timeout'), 3000);
 
 		const response = await fetch(url, { signal: controller.signal });
 		const text = await response.text();
@@ -178,6 +178,10 @@ function listenForWorker() {
 			case "mod-headers":
 				break;
 			case "make-project":
+				break;
+			case "nuke-cookies":
+				break;
+			case "reload":
 				break;
 			default:
 				track('error: listenForWorker', { message });
@@ -886,8 +890,11 @@ function track(event, data = {}) {
 	for (const key in data) {
 		if (data[key] instanceof Error) {
 			props.error = {
-				message: data[key].message,
-				stack: data[key].stack
+				message: data[key]?.message || "",
+				stack: data[key]?.stack || "",
+				name: data[key]?.name || "",
+				file: data[key]?.fileName || "",
+				line: data[key]?.lineNumber || ""
 			};
 		}
 		else {
