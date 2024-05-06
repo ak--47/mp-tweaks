@@ -938,3 +938,13 @@ async function captureCurrentTabId() {
 		});
 	});
 }
+
+try {
+	if (window) {
+		window.APP = APP;
+	}
+}
+
+catch (e) {
+	//noop
+}
