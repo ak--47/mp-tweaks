@@ -224,6 +224,7 @@ async function handleRequest(request) {
 			}
 			var { token, tabId } = STORAGE.sessionReplay;
 			if (token && tabId) result = await startSessionReplay(token, tabId);
+			await updateIconBasedOnHeaders(STORAGE.sessionReplay.enabled);
 			break;
 
 		case 'stop-replay':
@@ -231,6 +232,7 @@ async function handleRequest(request) {
 			result = false;
 			await setStorage(STORAGE);
 			await runScript(reload);
+			await updateIconBasedOnHeaders(STORAGE.sessionReplay.enabled);
 			break;
 
 		//update headers and call updateHeaders
@@ -441,7 +443,7 @@ async function startSessionReplay(token, tabId) {
 async function nukeCookies(domain = "mixpanel.com") {
 	const allCookies = await chrome.cookies.getAll({});
 	const cookies = allCookies.filter(c => c.domain.includes(domain));
-	if (cookies.length === 0) return "zero"
+	if (cookies.length === 0) return "zero";
 	for (const cookie of cookies) {
 		await chrome.cookies.remove({ url: `https://${cookie.domain}${cookie.path}`, name: cookie.name });
 	}
