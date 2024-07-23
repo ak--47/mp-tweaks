@@ -98,6 +98,15 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 			}
 		}
 
+		//big data project
+		if (tab.url.includes('mixpanel.com') && tab.url.includes('/3317160/')) {
+			console.log('mp-tweaks: Big Data Project');
+			chrome.scripting.executeScript({
+				target: { tabId: tabId },
+				files: ['./src/tweaks/hundredX.js']
+			});
+		}
+
 		// ezTrack
 		if (STORAGE?.EZTrack?.enabled && tabId === STORAGE.EZTrack.tabId) {
 			console.log('mp-tweaks: starting ezTrack in tab ' + tabId);
@@ -276,6 +285,10 @@ async function handleRequest(request) {
 		case 'reload':
 			await runScript(reload);
 			result = true;
+			break;
+
+		case 'open-tab':
+			result = await openNewTab(request.data.url, true);
 			break;
 
 		default:

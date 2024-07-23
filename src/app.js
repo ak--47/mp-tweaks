@@ -5,10 +5,12 @@ let STORAGE;
 
 const APP_VERSION = `2.22`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
+const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 
 const APP = {
 	currentVersion: APP_VERSION,
 	dataSource: FEATURE_FLAG_URI,
+	dataSources: [FEATURE_FLAG_URI, DEMO_GROUPS_URI],
 	DOM: {},
 	cacheDOM,
 	bindListeners,
@@ -17,6 +19,7 @@ const APP = {
 	setCheckbox,
 	fetchCSV,
 	buildButtons,
+	buildDemoButtons,
 	analytics,
 	saveJSON,
 	hideLoader,
@@ -35,14 +38,28 @@ const APP = {
 			this.listenForWorker();
 			this.analytics();
 
-			// build buttons
-			this.fetchCSV(this.dataSource)
+			// fetch data from google sheets, then hide loader and build UI buttons
+			const sources = this.dataSources;
+			Promise.all(sources.map(source => this.fetchCSV(source)))
 				.then((data) => {
+					const [flags, demoLinks] = data;
 					this.hideLoader();
-					data.forEach((button) => {
+					flags.forEach((button) => {
 						this.buildButtons(button);
 					});
-				}).finally(() => {
+					const demos = groupBy(demoLinks);
+					for (const demo in demos) {
+						const data = demos[demo];
+						this.buildDemoButtons(demo, data);
+					}
+
+
+				})
+				.catch((e) => {
+					console.error('mp-tweaks: error fetching data', e);
+					this.hideLoader();
+				})
+				.finally(() => {
 					console.log('mp-tweaks: app is ready');
 				});
 		});
@@ -97,12 +114,13 @@ async function fetchCSV(url) {
 			header: true
 		}).data;
 
-		this.buttonData = parseData;
+		// this.buttonData = parseData;
 		return parseData;
 	} catch (e) {
 		// Handle fetch errors (including abort)
 		track('error: fetchCSV', { error: e });
-		return [{ label: "QTS", flag: 'query_time_sampling' }];
+		// return [{ label: "QTS", flag: 'query_time_sampling' }];
+		return [];
 	}
 }
 
@@ -278,9 +296,13 @@ function cacheDOM() {
 	this.DOM.main = document.querySelector('#main');
 	this.DOM.loader = document.getElementById('loader');
 
+	//demo builds
+	this.DOM.demoLinks = document.querySelector('#demoLinks');
+	this.DOM.demoLinksWrapper = document.querySelector('#demoLinks > #buttons');
+
 	//feature flags
 	this.DOM.perTab = document.querySelector('#perTab');
-	this.DOM.buttonWrapper = document.querySelector('#buttons');
+	this.DOM.buttonWrapper = document.querySelector('#perTab > #buttons');
 	this.DOM.removeAll = document.querySelector('#removeAll');
 
 	//persistent scripts	
@@ -702,9 +724,36 @@ function buildButtons(object) {
 		messageWorker('add-flag', { flag });
 	};
 	this.DOM.buttonWrapper.appendChild(newButton);
+}
 
+function buildDemoButtons(demo, data) {
+	let newButton = document.createElement('BUTTON');
+	newButton.setAttribute('class', 'button fa');
+	newButton.setAttribute('id', demo);
+	newButton.appendChild(document.createTextNode(demo.toUpperCase()));
+	newButton.onclick = async () => {
+		// do something with the data
+		data.forEach(async (obj) => {
+			const { URL } = obj;
+			messageWorker('open-tab', { url: URL });
+		});
+	};
+	this.DOM.demoLinksWrapper.appendChild(newButton);
 
 }
+
+function groupBy(objects, field = 'TITLE') {
+	return objects.reduce((acc, obj) => {
+		const key = obj[field];
+		if (!acc[key]) {
+			acc[key] = [];
+		}
+		acc[key].push(obj);
+		return acc;
+	}, {});
+}
+
+
 
 function flipIntegers(obj) {
 	Object.keys(obj).forEach(key => {
