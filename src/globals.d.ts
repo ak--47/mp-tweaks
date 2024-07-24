@@ -7,4 +7,4 @@ declare var saveFile: any;
 declare var MIXPANEL_CATCH_FETCH_ACTIVE: boolean;
 declare var CATCH_FETCH_INTENT: string;
 declare var SESSION_REPLAY_ACTIVE: boolean;
-declare var APP: object;
+// declare var APP: object;

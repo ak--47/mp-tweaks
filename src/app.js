@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.22`;
+const APP_VERSION = `2.24`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 
@@ -30,6 +30,7 @@ const APP = {
 	dataEditorHandleCatch,
 	queryBuilderHandleCatch,
 	getHeaders,
+	addQueryParams,
 	init: function () {
 		this.cacheDOM();
 		this.getStorage().then(() => {
@@ -735,7 +736,10 @@ function buildDemoButtons(demo, data) {
 		// do something with the data
 		data.forEach(async (obj) => {
 			const { URL } = obj;
-			messageWorker('open-tab', { url: URL });
+			let url;
+			if (STORAGE.whoami.email) url = addQueryParams(URL, { current_user: STORAGE.whoami.email });
+			else url = URL;
+			messageWorker('open-tab', { url });
 		});
 	};
 	this.DOM.demoLinksWrapper.appendChild(newButton);
@@ -751,6 +755,31 @@ function groupBy(objects, field = 'TITLE') {
 		acc[key].push(obj);
 		return acc;
 	}, {});
+}
+
+
+function addQueryParams(url, params) {
+	let [baseUrl, hash] = url.split('#');
+	let queryString = '';
+
+	// Check if the baseUrl already has query parameters
+	const hasQueryParams = baseUrl.includes('?');
+
+	// Convert params object to query string
+	for (let key in params) {
+		if (params.hasOwnProperty(key)) {
+			queryString += `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}&`;
+		}
+	}
+
+	// Remove the trailing '&'
+	queryString = queryString.slice(0, -1);
+
+	// Concatenate baseUrl with new query string
+	const updatedBaseUrl = hasQueryParams ? `${baseUrl}&${queryString}` : `${baseUrl}?${queryString}`;
+
+	// Reattach the hash if it exists
+	return hash ? `${updatedBaseUrl}#${hash}` : updatedBaseUrl;
 }
 
 
@@ -943,8 +972,8 @@ function track(event, data = {}) {
 				message: data[key]?.message || "",
 				stack: data[key]?.stack || "",
 				name: data[key]?.name || "",
-				file: data[key]?.fileName || "",
-				line: data[key]?.lineNumber || ""
+				// file: data[key]?.fileName || "",
+				// line: data[key]?.lineNumber || ""
 			};
 		}
 		else {
@@ -991,6 +1020,7 @@ async function captureCurrentTabId() {
 
 try {
 	if (window) {
+		// @ts-ignore
 		window.APP = APP;
 	}
 }
