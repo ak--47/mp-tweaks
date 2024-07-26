@@ -759,6 +759,10 @@ function groupBy(objects, field = 'TITLE') {
 
 
 function addQueryParams(url, params) {
+	if (url.includes('distinct_id=') && params.current_user) {
+		return url.replace(/distinct_id=/, `distinct_id=${params.current_user}`);		
+	}
+
 	let [baseUrl, hash] = url.split('#');
 	let queryString = '';
 
