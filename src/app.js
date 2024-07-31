@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.25`;
+const APP_VERSION = `2.26`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 
@@ -117,7 +117,7 @@ async function fetchCSV(url, name) {
 			header: true
 		}).data;
 
-		
+
 
 		// this.buttonData = parseData;
 		return parseData;
@@ -750,6 +750,7 @@ function buildButtons(object) {
 	newButton.setAttribute('id', buttonId);
 	newButton.appendChild(document.createTextNode(name.toUpperCase()));
 	newButton.onclick = async () => {
+		track('flag button', { flag });
 		messageWorker('add-flag', { flag });
 	};
 	this.DOM.buttonWrapper.appendChild(newButton);
@@ -761,8 +762,10 @@ function buildDemoButtons(demo, data) {
 	newButton.setAttribute('id', demo);
 	newButton.appendChild(document.createTextNode(demo.toUpperCase()));
 	newButton.onclick = async () => {
+		track('demo button', { demo });
 		// do something with the data
 		data.forEach(async (obj) => {
+
 			const { URL } = obj;
 			let meta;
 			try {
