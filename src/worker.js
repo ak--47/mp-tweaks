@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.24`;
+const APP_VERSION = `2.25`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -20,12 +20,16 @@ const STORAGE_MODEL = {
 	persistScripts: [],
 	serviceAcct: { user: '', pass: '' },
 	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
-	featureFlags: [],
+	
 	sessionReplay: { token: "", enabled: false, tabId: 0 },
 	EZTrack: { token: "", enabled: false, tabId: 0 },
 	verbose: true,
 	modHeaders: { headers: [], enabled: false },
-	last_updated: Date.now()
+	last_updated: Date.now(),
+	//these can be cached;
+	featureFlags: [],
+	demoLinks: []
+	
 };
 
 /*
@@ -82,6 +86,7 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 
 		// mixpanel tweaks
 		if (tab.url.includes('mixpanel.com') && (tab.url.includes('project') || tab.url.includes('report'))) {
+			track('mixpanel page loaded', { url: tab.url });
 			console.log('mp-tweaks: Mixpanel page loaded');
 			const userScripts = STORAGE?.persistScripts || [];
 			for (const script of userScripts) {
@@ -206,23 +211,23 @@ async function handleRequest(request) {
 			result = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
 			break;
 
-		case 'start-eztrack':
-			STORAGE.EZTrack.enabled = true;
-			if (request?.data?.token && request?.data?.tabId) {
-				STORAGE.EZTrack.token = request.data.token;
-				STORAGE.EZTrack.tabId = request.data.tabId;
-				await setStorage(STORAGE);
-			}
-			var { token, tabId } = STORAGE.EZTrack;
-			if (token && tabId) result = await startEzTrack(token, tabId);
-			break;
+		// case 'start-eztrack':
+		// 	STORAGE.EZTrack.enabled = true;
+		// 	if (request?.data?.token && request?.data?.tabId) {
+		// 		STORAGE.EZTrack.token = request.data.token;
+		// 		STORAGE.EZTrack.tabId = request.data.tabId;
+		// 		await setStorage(STORAGE);
+		// 	}
+		// 	var { token, tabId } = STORAGE.EZTrack;
+		// 	if (token && tabId) result = await startEzTrack(token, tabId);
+		// 	break;
 
-		case 'stop-eztrack':
-			STORAGE.EZTrack.enabled = false;
-			result = false;
-			await setStorage(STORAGE);
-			await runScript(reload);
-			break;
+		// case 'stop-eztrack':
+		// 	STORAGE.EZTrack.enabled = false;
+		// 	result = false;
+		// 	await setStorage(STORAGE);
+		// 	await runScript(reload);
+		// 	break;
 
 		case 'start-replay':
 			STORAGE.sessionReplay.enabled = true;
@@ -278,6 +283,11 @@ async function handleRequest(request) {
 			await runScript(reload);
 			break;
 
+		case 'embed-sdk':
+			debugger;
+			await embedMixpanelSDK(request?.data?.tab?.id || undefined);
+			break;
+
 		case 'nuke-cookies':
 			result = await nukeCookies();
 			break;
@@ -289,6 +299,10 @@ async function handleRequest(request) {
 
 		case 'open-tab':
 			result = await openNewTab(request.data.url, true);
+			if (result.id && request.data?.tooltip) {
+				await runScript(injectToolTip, [request.data.tooltip], { world: 'MAIN' }, result);
+
+			}
 			break;
 
 		default:
@@ -445,11 +459,60 @@ async function startEzTrack(token, tabId) {
 }
 
 async function startSessionReplay(token, tabId) {
-	const library = await runScript("./src/lib/replay.js", [], { world: "MAIN" }, { id: tabId });
+	const library = await runScript("./src/lib/eztrack-and-replay.js", [], { world: "MAIN" }, { id: tabId });
 	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	const init = await runScript(sessionReplayInit, [token, { lib: chrome.runtime.getURL('/src/lib/mixpanel.dev.min.js'), proxy }], { world: "MAIN" }, { id: tabId });
-	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
+	const init = await runScript(sessionReplayInit, [token, { proxy }, STORAGE.whoami], { world: "MAIN" }, { id: tabId });
+	const caution = runScript('./src/tweaks/cautionIcon.js', [], {}, { id: tabId });
 	return [library, init, caution];
+
+}
+
+async function injectToolTip(tooltip) {
+	function waitForElement(selector, context = document, interval = 100, timeout = 15000) {
+		return new Promise((resolve, reject) => {
+			const startTime = Date.now();
+
+			const poller = setInterval(() => {
+				const element = context.querySelector(selector);
+				if (element) {
+					clearInterval(poller);
+					resolve(element);
+				} else if (Date.now() - startTime >= timeout) {
+					clearInterval(poller);
+					reject(new Error(`mp-tweaks: element ${selector} not found within ${timeout}ms.`));
+				}
+			}, interval);
+		});
+	}
+
+	try {
+		console.log('mp-tweaks: waiting for mp-report-message-banner');
+
+		const messageBox = await waitForElement("mp-report-message-banner");
+		messageBox.setAttribute('visible', true);
+		messageBox.setAttribute('closeable', true);
+
+		console.log('mp-tweaks: waiting for mp-banner inside shadow DOM');
+
+		const mpBanner = await waitForElement("div > mp-banner", messageBox.shadowRoot);
+
+		console.log('mp-tweaks: waiting for banner-copy inside nested shadow DOM');
+		const messageToolTip = await waitForElement("div > div > div > div.banner-copy-no-header.banner-copy", mpBanner.shadowRoot);
+		messageToolTip.innerText = tooltip;
+		messageToolTip.style["fontSize"] = "18px";
+		messageToolTip.style["marginLeft"] = "10px";
+		messageToolTip.style["padding-top"] = "1px";
+
+		console.log('mp-tweaks: tooltip injected');
+	} catch (error) {
+		console.error(error);
+	}
+}
+
+
+async function embedMixpanelSDK(tabId) {
+	const library = await runScript("./src/lib/mixpanel-embedded.js", [], { world: "MAIN" }, { id: tabId });
+	return [library];
 
 }
 
@@ -572,19 +635,36 @@ function ezTrackInit(token, opts = {}) {
 	const intervalId = setInterval(tryInit, 1000);
 }
 
-function sessionReplayInit(token, opts = {}) {
+function sessionReplayInit(token, opts = {}, user) {
 	let attempts = 0;
 	let intervalId;
-	const lib = opts.lib || chrome.runtime.getURL('/src/lib/mixpanel.dev.min.js');
 	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
+	if (!user) user = { name: 'anonymous', email: `anonymous-${Math.floor(Math.random() * 10000)}` };
 
 	function tryInit() {
 		// @ts-ignore
-		if (window.mixpanel_with_session_replay && !window.SESSION_REPLAY_ACTIVE) {
+		if (window.mpEZTrack && !window.SESSION_REPLAY_ACTIVE) {
 			console.log('mp-tweaks: turning on session replay');
 			clearInterval(intervalId);
-			mixpanel_with_session_replay(token, lib, proxy);
-			window.SESSION_REPLAY_ACTIVE = true;
+			window.addEventListener('mpEZTrackLoaded', () => {
+				console.log('mp-tweaks: ez track loaded');
+				mixpanel.ez.identify(user.email);
+				mixpanel.ez.track('TRACKING ON!');
+				mixpanel.ez.people.set({ $name: user.name, $email: user.email });
+			});
+
+			mpEZTrack.init(token, {
+				record_sessions_percent: 100,
+				record_mask_text_selector: 'record-everything',
+				api_host: proxy,
+				loaded: function () {
+					console.log('mp-tweaks: session replay loaded');
+					window.SESSION_REPLAY_ACTIVE = true;
+				}
+
+			}, true);
+
+			// window.SESSION_REPLAY_ACTIVE = true;
 		} else {
 			attempts++;
 			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}`);
@@ -596,7 +676,7 @@ function sessionReplayInit(token, opts = {}) {
 		}
 	}
 
-	intervalId = setInterval(tryInit, 1000);
+	intervalId = setInterval(tryInit, 1500);
 
 }
 
@@ -746,17 +826,24 @@ async function getCurrentTab() {
 	});
 }
 
-async function getStorage(keys = null) {
-	return new Promise((resolve, reject) => {
+async function getStorage(keys = null, retries = 3, delay = 1000) {
+	const attempt = (resolve, reject, remainingRetries) => {
 		chrome.storage.sync.get(keys, (result) => {
 			if (chrome.runtime.lastError) {
-				reject(new Error(chrome.runtime.lastError));
+				if (remainingRetries > 0) {
+					setTimeout(() => attempt(resolve, reject, remainingRetries - 1), delay);
+				} else {
+					reject(new Error(chrome.runtime.lastError.message || JSON.stringify(chrome.runtime.lastError)));
+				}
 			} else {
 				resolve(result);
 			}
 		});
-	});
+	};
+
+	return new Promise((resolve, reject) => attempt(resolve, reject, retries));
 }
+
 
 async function setStorage(data) {
 	data.last_updated = Date.now();

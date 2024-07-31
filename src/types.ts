@@ -12,7 +12,8 @@ export type ChromeStorage = {
 	  oauthToken: string;
 	  orgName: string;
 	};
-	featureFlags: string[];
+	featureFlags: Object[];
+	demoLinks: Object[];
 	sessionReplay: {
 	  token: string;
 	  enabled: boolean;
@@ -28,7 +29,7 @@ export type ChromeStorage = {
 	modHeaders: {
 		headers: ModHeaders[]
 		enabled: boolean;
-	}
+	}	
   };
   
 // Define a type for the additional string key-value pairs

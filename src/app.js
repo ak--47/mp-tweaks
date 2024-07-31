@@ -3,14 +3,16 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.24`;
+const APP_VERSION = `2.25`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 
 const APP = {
 	currentVersion: APP_VERSION,
-	dataSource: FEATURE_FLAG_URI,
-	dataSources: [FEATURE_FLAG_URI, DEMO_GROUPS_URI],
+	dataSources: [
+		{ name: 'featureFlags', url: FEATURE_FLAG_URI },
+		{ name: 'demoLinks', url: DEMO_GROUPS_URI }
+	],
 	DOM: {},
 	cacheDOM,
 	bindListeners,
@@ -41,7 +43,7 @@ const APP = {
 
 			// fetch data from google sheets, then hide loader and build UI buttons
 			const sources = this.dataSources;
-			Promise.all(sources.map(source => this.fetchCSV(source)))
+			Promise.all(sources.map(source => this.fetchCSV(source.url, source.name)))
 				.then((data) => {
 					const [flags, demoLinks] = data;
 					this.hideLoader();
@@ -102,7 +104,7 @@ function sleep(ms) {
 }
 
 
-async function fetchCSV(url) {
+async function fetchCSV(url, name) {
 	try {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort('timeout'), 3000);
@@ -115,13 +117,32 @@ async function fetchCSV(url) {
 			header: true
 		}).data;
 
+		
+
 		// this.buttonData = parseData;
 		return parseData;
 	} catch (e) {
-		// Handle fetch errors (including abort)
-		track('error: fetchCSV', { error: e });
-		// return [{ label: "QTS", flag: 'query_time_sampling' }];
-		return [];
+
+		try {
+			const storage = await getStorage();
+			const cache = storage[name];
+			if (cache) {
+				return cache;
+			}
+			else {
+				track('error: fetchCSV (cache fail)', { error: e });
+				return [];
+			}
+
+		}
+		catch (e) {
+			// Handle fetch errors (including abort)
+			track('error: fetchCSV', { error: e });
+			// return [{ label: "QTS", flag: 'query_time_sampling' }];
+
+			//serve from cache
+			return [];
+		}
 	}
 }
 
@@ -146,7 +167,8 @@ async function getStorage(keys = null) {
 	return new Promise((resolve, reject) => {
 		chrome.storage.sync.get(keys, (result) => {
 			if (chrome.runtime.lastError) {
-				track('error: getStorage', { error: chrome.runtime.lastError });
+				if (STORAGE) resolve(STORAGE); //return the cached storage
+				track('error: getStorage (cache miss)', { error: chrome.runtime.lastError });
 				reject(new Error(chrome.runtime.lastError));
 			} else {
 				/** @type {PersistentStorage} */
@@ -348,6 +370,7 @@ function cacheDOM() {
 
 	//odds and ends
 	this.DOM.nukeCookies = document.querySelector('#nukeCookies');
+	this.DOM.embedSDK = document.querySelector('#embedSDK');
 
 	//headers
 	this.DOM.checkPairs = document.querySelectorAll('.checkPair');
@@ -705,6 +728,11 @@ function bindListeners() {
 			const numDeleted = await messageWorker('nuke-cookies');
 			alert(`Deleted ${numDeleted} cookies`);
 		});
+
+		this.DOM.embedSDK.addEventListener('click', async () => {
+			const tab = await getCurrentTab();
+			await messageWorker('embed-sdk', { tab });
+		});
 	}
 	catch (e) {
 		track('error: bindListeners', { error: e });
@@ -736,10 +764,19 @@ function buildDemoButtons(demo, data) {
 		// do something with the data
 		data.forEach(async (obj) => {
 			const { URL } = obj;
+			let meta;
+			try {
+				meta = JSON.parse(obj.META);
+			}
+
+			catch (e) {
+				meta = {};
+			}
+
 			let url;
-			if (STORAGE.whoami.email) url = addQueryParams(URL, { current_user: STORAGE.whoami.email });
+			if (STORAGE.whoami.email) url = addQueryParams(URL, { user: STORAGE.whoami.email });
 			else url = URL;
-			messageWorker('open-tab', { url });
+			messageWorker('open-tab', { url, ...meta });
 		});
 	};
 	this.DOM.demoLinksWrapper.appendChild(newButton);
@@ -759,8 +796,8 @@ function groupBy(objects, field = 'TITLE') {
 
 
 function addQueryParams(url, params) {
-	if (url.includes('distinct_id=') && params.current_user) {
-		return url.replace(/distinct_id=/, `distinct_id=${params.current_user}`);		
+	if (url.includes('distinct_id=') && params.user) {
+		return url.replace(/distinct_id=/, `distinct_id=${params.user}`);
 	}
 
 	let [baseUrl, hash] = url.split('#');
