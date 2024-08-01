@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.26`;
+const APP_VERSION = `2.27`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -461,7 +461,8 @@ async function startEzTrack(token, tabId) {
 async function startSessionReplay(token, tabId) {
 	const library = await runScript("./src/lib/eztrack-and-replay.js", [], { world: "MAIN" }, { id: tabId });
 	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	const init = await runScript(sessionReplayInit, [token, { proxy }, STORAGE.whoami], { world: "MAIN" }, { id: tabId });
+	const replayLib = chrome.runtime.getURL('/src/lib/mixpanel-recorder.min.js');
+	const init = await runScript(sessionReplayInit, [token, { proxy, replayLib }, STORAGE.whoami], { world: "MAIN" }, { id: tabId });
 	const caution = runScript('./src/tweaks/cautionIcon.js', [], {}, { id: tabId });
 	return [library, init, caution];
 
@@ -639,6 +640,7 @@ function sessionReplayInit(token, opts = {}, user) {
 	let attempts = 0;
 	let intervalId;
 	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
+	const replayLib = opts.replayLib || 'https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js';
 	if (!user) user = { name: 'anonymous', email: `anonymous-${Math.floor(Math.random() * 10000)}` };
 
 	function tryInit() {
@@ -656,6 +658,7 @@ function sessionReplayInit(token, opts = {}, user) {
 			mpEZTrack.init(token, {
 				record_sessions_percent: 100,
 				record_mask_text_selector: 'record-everything',
+				recorder_src: replayLib,
 				api_host: proxy,
 				loaded: function () {
 					console.log('mp-tweaks: session replay loaded');

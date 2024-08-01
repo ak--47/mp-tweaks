@@ -7234,7 +7234,7 @@
         "record_mask_text_selector": "*",
         "record_max_ms": MAX_RECORDING_MS,
         "record_sessions_percent": 0,
-        "recorder_src": "https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js"
+        "recorder_src":  "https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js"
       };
       var DOM_LOADED = false;
       var MixpanelLib = function() {
@@ -7619,7 +7619,7 @@
                   lib.report_error(error);
                   if (callback) {
                     if (verbose_mode) {
-                      var response_headers = req["responseHeaders"] || {};
+                      var response_headers = req["responseHeaders"] || {}
                       callback({ status: 0, httpStatusCode: req["status"], error, retryAfter: response_headers["Retry-After"] });
                     } else {
                       callback(0);
@@ -9800,84 +9800,85 @@ https://developer.mixpanel.com/reference/project-token`
     }
   }
   function trackYoutubeVideos(mp) {
-    const tag = document.createElement("script");
-    tag.id = "mixpanel-iframe-tracker";
-    tag.src = "https://www.youtube.com/iframe_api";
-    const firstScriptTag = document.getElementsByTagName("script")[0] || document.getElementsByTagName("body")[0].children[0];
-    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-    const videos = uniqueNodes(this.query(YOUTUBE_SELECTOR)).filter((frame) => frame.src.includes("youtube.com/embed"));
-    for (const video of videos) {
-      this.trackedElements.push(video);
-      if (!video.id) {
-        video.id = new URL(video.src).pathname.replace("/embed/", "");
-      }
-      if (!video.src.includes("enablejsapi")) {
-        const newSRC = new URL(video.src);
-        newSRC.searchParams.delete("enablejsapi");
-        newSRC.searchParams.append("enablejsapi", 1);
-        video.src = newSRC.toString();
-      }
-    }
-    window.onYouTubeIframeAPIReady = function() {
-      const videos2 = ezTrack.query(YOUTUBE_SELECTOR).filter((frame) => frame.src.includes("youtube.com/embed"));
-      for (const video of videos2) {
-        bindTrackingToVideo(video.id);
-      }
-    };
-    function bindTrackingToVideo(videoId) {
-      const player = new YT.Player(videoId, {
-        events: {
-          onReady: onPlayerReady,
-          onStateChange: onPlayerStateChange
-        }
-      });
-    }
-    function getVideoInfo(player) {
-      const videoInfo = player.getVideoData();
-      const videoProps = {
-        "VIDEO \u2192 quality": player.getPlaybackQuality(),
-        "VIDEO \u2192 length (sec)": player.getDuration(),
-        "VIDEO \u2192 elapsed (sec)": player.getCurrentTime(),
-        "VIDEO \u2192 url": player.getVideoUrl(),
-        "VIDEO \u2192 title": videoInfo.title,
-        "VIDEO \u2192 id": videoInfo.video_id,
-        "VIDEO \u2192 author": videoInfo.author,
-        "VIDEO \u2192 fullscreen": !(document.fullscreenElement === null)
-      };
-      return videoProps;
-    }
-    function onPlayerReady(event) {
-      const videoInfo = getVideoInfo(event.target);
-      mp.track("youtube player load", videoInfo);
-      mp.time_event("youtube video started");
-    }
-    function onPlayerStateChange(event) {
-      trackPlayerChanges(event.data, event.target);
-    }
-    function trackPlayerChanges(playerStatus, player) {
-      const videoInfo = getVideoInfo(player);
-      const props = { ...videoInfo, ...statefulProps(false) };
-      switch (playerStatus) {
-        case -1:
-          break;
-        case 0:
-          mp.track("youtube video finish", props);
-          break;
-        case 1:
-          mp.track("youtube video play", props);
-          mp.time_event("youtube video finish");
-          break;
-        case 2:
-          mp.track("youtube video pause", props);
-          break;
-        case 3:
-          break;
-        case 5:
-          break;
-        default:
-          break;
-      }
-    }
+	return;
+    // const tag = document.createElement("script");
+    // tag.id = "mixpanel-iframe-tracker";
+    // tag.src = "https://www.youtube.com/iframe_api";
+    // const firstScriptTag = document.getElementsByTagName("script")[0] || document.getElementsByTagName("body")[0].children[0];
+    // firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    // const videos = uniqueNodes(this.query(YOUTUBE_SELECTOR)).filter((frame) => frame.src.includes("youtube.com/embed"));
+    // for (const video of videos) {
+    //   this.trackedElements.push(video);
+    //   if (!video.id) {
+    //     video.id = new URL(video.src).pathname.replace("/embed/", "");
+    //   }
+    //   if (!video.src.includes("enablejsapi")) {
+    //     const newSRC = new URL(video.src);
+    //     newSRC.searchParams.delete("enablejsapi");
+    //     newSRC.searchParams.append("enablejsapi", 1);
+    //     video.src = newSRC.toString();
+    //   }
+    // }
+    // window.onYouTubeIframeAPIReady = function() {
+    //   const videos2 = ezTrack.query(YOUTUBE_SELECTOR).filter((frame) => frame.src.includes("youtube.com/embed"));
+    //   for (const video of videos2) {
+    //     bindTrackingToVideo(video.id);
+    //   }
+    // };
+    // function bindTrackingToVideo(videoId) {
+    //   const player = new YT.Player(videoId, {
+    //     events: {
+    //       onReady: onPlayerReady,
+    //       onStateChange: onPlayerStateChange
+    //     }
+    //   });
+    // }
+    // function getVideoInfo(player) {
+    //   const videoInfo = player.getVideoData();
+    //   const videoProps = {
+    //     "VIDEO \u2192 quality": player.getPlaybackQuality(),
+    //     "VIDEO \u2192 length (sec)": player.getDuration(),
+    //     "VIDEO \u2192 elapsed (sec)": player.getCurrentTime(),
+    //     "VIDEO \u2192 url": player.getVideoUrl(),
+    //     "VIDEO \u2192 title": videoInfo.title,
+    //     "VIDEO \u2192 id": videoInfo.video_id,
+    //     "VIDEO \u2192 author": videoInfo.author,
+    //     "VIDEO \u2192 fullscreen": !(document.fullscreenElement === null)
+    //   };
+    //   return videoProps;
+    // }
+    // function onPlayerReady(event) {
+    //   const videoInfo = getVideoInfo(event.target);
+    //   mp.track("youtube player load", videoInfo);
+    //   mp.time_event("youtube video started");
+    // }
+    // function onPlayerStateChange(event) {
+    //   trackPlayerChanges(event.data, event.target);
+    // }
+    // function trackPlayerChanges(playerStatus, player) {
+    //   const videoInfo = getVideoInfo(player);
+    //   const props = { ...videoInfo, ...statefulProps(false) };
+    //   switch (playerStatus) {
+    //     case -1:
+    //       break;
+    //     case 0:
+    //       mp.track("youtube video finish", props);
+    //       break;
+    //     case 1:
+    //       mp.track("youtube video play", props);
+    //       mp.time_event("youtube video finish");
+    //       break;
+    //     case 2:
+    //       mp.track("youtube video pause", props);
+    //       break;
+    //     case 3:
+    //       break;
+    //     case 5:
+    //       break;
+    //     default:
+    //       break;
+    //   }
+    // }
   }
   function getEZTrackConfig() {
     return this.opts;

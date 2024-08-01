@@ -1,6 +1,6 @@
 {
 	"name": "MP Tweaks!",
-	"version": "2.26",
+	"version": "2.27",
 	"manifest_version": 3,
 	"description": "this is an extension (by AK) to add feature flags to Mixpanel",
 	"homepage_url": "https://mixpanel.com",
@@ -34,7 +34,7 @@
 			]
 		},
 		{
-			"resources": ["src/lib/eztrack.min.js", "src/lib/eztrack-and-replay.js"],
+			"resources": ["src/lib/eztrack.min.js", "src/lib/eztrack-and-replay.js", "src/lib/mixpanel-recorder.min.js"],
 			"matches": ["*://*/*"]
 		}
 	],

@@ -7234,7 +7234,7 @@
 		  "record_mask_text_selector": "*",
 		  "record_max_ms": MAX_RECORDING_MS,
 		  "record_sessions_percent": 0,
-		  "recorder_src": "https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js"
+		  "recorder_src":  chrome.runtime.getURL('/src/lib/mixpanel-recorder.min.js')  //"https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js"
 		};
 		var DOM_LOADED = false;
 		var MixpanelLib = function() {
