@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.27`;
+const APP_VERSION = `2.28`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -20,7 +20,7 @@ const STORAGE_MODEL = {
 	persistScripts: [],
 	serviceAcct: { user: '', pass: '' },
 	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
-	
+
 	sessionReplay: { token: "", enabled: false, tabId: 0 },
 	EZTrack: { token: "", enabled: false, tabId: 0 },
 	verbose: true,
@@ -29,7 +29,7 @@ const STORAGE_MODEL = {
 	//these can be cached;
 	featureFlags: [],
 	demoLinks: []
-	
+
 };
 
 /*
@@ -194,6 +194,10 @@ async function handleRequest(request) {
 
 		case 'make-project':
 			result = await makeProject();
+			if (result) {
+				const { url = "" } = result;
+				if (url) await openNewTab(url, true);
+			}
 			// need to do tab opening in popup
 			// if (result?.url) await openNewTab(result.url, true);
 			break;
@@ -452,6 +456,7 @@ async function makeProject() {
 }
 
 async function startEzTrack(token, tabId) {
+	return [];
 	const library = await runScript("./src/lib/eztrack.min.js", [], { world: "ISOLATED" }, { id: tabId });
 	const init = await runScript(ezTrackInit, [token], { world: "ISOLATED" }, { id: tabId });
 	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
@@ -469,7 +474,7 @@ async function startSessionReplay(token, tabId) {
 }
 
 async function injectToolTip(tooltip) {
-	function waitForElement(selector, context = document, interval = 100, timeout = 15000) {
+	function waitForElement(selector, context = document, interval = 100, timeout = 30000) {
 		return new Promise((resolve, reject) => {
 			const startTime = Date.now();
 
@@ -496,6 +501,7 @@ async function injectToolTip(tooltip) {
 		console.log('mp-tweaks: waiting for mp-banner inside shadow DOM');
 
 		const mpBanner = await waitForElement("div > mp-banner", messageBox.shadowRoot);
+
 
 		console.log('mp-tweaks: waiting for banner-copy inside nested shadow DOM');
 		const messageToolTip = await waitForElement("div > div > div > div.banner-copy-no-header.banner-copy", mpBanner.shadowRoot);

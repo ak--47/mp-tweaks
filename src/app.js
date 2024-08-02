@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.27`;
+const APP_VERSION = `2.28`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 
@@ -372,6 +372,8 @@ function cacheDOM() {
 	this.DOM.nukeCookies = document.querySelector('#nukeCookies');
 	this.DOM.embedSDK = document.querySelector('#embedSDK');
 
+	this.DOM.versionLabel = document.querySelector('#versionLabel');
+
 	//headers
 	this.DOM.checkPairs = document.querySelectorAll('.checkPair');
 	this.DOM.deletePairs = document.querySelectorAll('.deletePair');
@@ -434,6 +436,9 @@ function loadInterface() {
 			this.DOM.headerKeys[index].value = Object.keys(header)[0];
 			this.DOM.headerValues[index].value = Object.values(header)[0];
 		});
+
+		//version
+		this.DOM.versionLabel.textContent = `v${APP_VERSION}`;
 	}
 	catch (e) {
 		track('error: loadInterface', { error: e });
@@ -471,7 +476,8 @@ function bindListeners() {
 				this.DOM.projectDetails.value = display;
 				this.saveJSON(newProject, `project-${name}`);
 				// await sleep(5000)
-				openNewTab(url);
+				// openNewTab(url);
+				track('make-project', { name, id, token, url });
 
 			}
 			catch (e) {
