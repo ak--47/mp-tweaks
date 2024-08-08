@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.28`;
+const APP_VERSION = `2.29`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 
@@ -354,12 +354,7 @@ function cacheDOM() {
 	this.DOM.orgLabel = document.querySelector('#orgLabel');
 	this.DOM.orgPlaceholder = document.querySelector('#orgLabel b');
 
-	//EZTrack
-	this.DOM.startEZTrack = document.querySelector('#startEZTrack');
-	this.DOM.stopEZTrack = document.querySelector('#stopEZTrack');
-	this.DOM.EZTrackToken = document.querySelector('#EZTrackToken');
-	this.DOM.EZTrackLabel = document.querySelector('#EZTrackLabel');
-	this.DOM.EZTrackStatus = document.querySelector('#EZTrackLabel b');
+
 
 	//session replay
 	this.DOM.startReplay = document.querySelector('#startReplay');
@@ -390,7 +385,7 @@ function cacheDOM() {
 
 function loadInterface() {
 	try {
-		const { persistScripts, whoami, EZTrack, sessionReplay, modHeaders } = STORAGE;
+		const { persistScripts, whoami,  sessionReplay, modHeaders } = STORAGE;
 
 		//load toggle states
 		APP.setCheckbox(persistScripts);
@@ -406,10 +401,6 @@ function loadInterface() {
 			this.DOM.makeProject.disabled = true;
 		}
 
-		//EZTrack labels + token
-		if (EZTrack.token) this.DOM.EZTrackToken.value = EZTrack.token;
-		if (EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${STORAGE?.EZTrack?.tabId || ""})`;
-		if (!EZTrack.enabled) this.DOM.EZTrackStatus.textContent = `DISABLED`;
 
 		//session replay labels + token
 		if (sessionReplay.token) this.DOM.sessionReplayToken.value = sessionReplay.token;
@@ -578,31 +569,6 @@ function bindListeners() {
 			const chartData = JSON.parse(this.DOM.rawDataTextField.value);
 			this.saveJSON(chartData, `data-${chartData?.computed_at}` || "data");
 		});
-
-		//EZTRACK
-		this.DOM.startEZTrack.addEventListener('click', async () => {
-			const token = this.DOM.EZTrackToken.value;
-			if (!token) {
-				alert('token required');
-				return;
-			}
-			const tabId = await captureCurrentTabId();
-			this.DOM.EZTrackStatus.textContent = `ENABLED (tab #${tabId?.toString()})`;
-			messageWorker('start-eztrack', { token, tabId });
-		});
-
-		this.DOM.stopEZTrack.addEventListener('click', () => {
-			this.DOM.EZTrackStatus.textContent = `DISABLED`;
-			messageWorker('stop-eztrack');
-		});
-
-		this.DOM.EZTrackToken.addEventListener('input', () => {
-			const token = this.DOM.EZTrackToken.value;
-			if (token !== STORAGE.EZTrack.token) {
-				setStorage({ EZTrack: { token, enabled: false } });
-			}
-		});
-
 
 		//SESSION REPLAY
 

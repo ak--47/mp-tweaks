@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.28`;
+const APP_VERSION = `2.29`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -85,19 +85,23 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 	if (changeInfo.status === 'complete') {
 
 		// mixpanel tweaks
-		if (tab.url.includes('mixpanel.com') && (tab.url.includes('project') || tab.url.includes('report'))) {
+		if (tab.url.includes('mixpanel.com')) {
 			track('mixpanel page loaded', { url: tab.url });
-			console.log('mp-tweaks: Mixpanel page loaded');
-			const userScripts = STORAGE?.persistScripts || [];
-			for (const script of userScripts) {
-				if (SCRIPTS[script]) {
-					const { path } = SCRIPTS[script];
-					if (path) {
-						console.log(`mp-tweaks: running ${script}`);
-						chrome.scripting.executeScript({
-							target: { tabId: tabId },
-							files: [path]
-						});
+
+			// persist scripts
+			if ((tab.url.includes('project') || tab.url.includes('report'))) {
+				console.log('mp-tweaks: Mixpanel page loaded');
+				const userScripts = STORAGE?.persistScripts || [];
+				for (const script of userScripts) {
+					if (SCRIPTS[script]) {
+						const { path } = SCRIPTS[script];
+						if (path) {
+							console.log(`mp-tweaks: running ${script}`);
+							chrome.scripting.executeScript({
+								target: { tabId: tabId },
+								files: [path]
+							});
+						}
 					}
 				}
 			}
@@ -110,13 +114,6 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 				target: { tabId: tabId },
 				files: ['./src/tweaks/hundredX.js']
 			});
-		}
-
-		// ezTrack
-		if (STORAGE?.EZTrack?.enabled && tabId === STORAGE.EZTrack.tabId) {
-			console.log('mp-tweaks: starting ezTrack in tab ' + tabId);
-			startEzTrack(STORAGE.EZTrack.token, tabId);
-
 		}
 
 		// session replay
@@ -215,24 +212,6 @@ async function handleRequest(request) {
 			result = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
 			break;
 
-		// case 'start-eztrack':
-		// 	STORAGE.EZTrack.enabled = true;
-		// 	if (request?.data?.token && request?.data?.tabId) {
-		// 		STORAGE.EZTrack.token = request.data.token;
-		// 		STORAGE.EZTrack.tabId = request.data.tabId;
-		// 		await setStorage(STORAGE);
-		// 	}
-		// 	var { token, tabId } = STORAGE.EZTrack;
-		// 	if (token && tabId) result = await startEzTrack(token, tabId);
-		// 	break;
-
-		// case 'stop-eztrack':
-		// 	STORAGE.EZTrack.enabled = false;
-		// 	result = false;
-		// 	await setStorage(STORAGE);
-		// 	await runScript(reload);
-		// 	break;
-
 		case 'start-replay':
 			STORAGE.sessionReplay.enabled = true;
 			if (request?.data?.token && request?.data?.tabId) {
@@ -303,8 +282,8 @@ async function handleRequest(request) {
 
 		case 'open-tab':
 			result = await openNewTab(request.data.url, true);
-			if (result.id && request.data?.tooltip) {
-				await runScript(injectToolTip, [request.data.tooltip], { world: 'MAIN' }, result);
+			if (result.id && request.data) {
+				await runScript(injectToolTip, [request.data], { world: 'MAIN' }, result);
 
 			}
 			break;
@@ -455,19 +434,18 @@ async function makeProject() {
 	return data;
 }
 
-async function startEzTrack(token, tabId) {
-	return [];
-	const library = await runScript("./src/lib/eztrack.min.js", [], { world: "ISOLATED" }, { id: tabId });
-	const init = await runScript(ezTrackInit, [token], { world: "ISOLATED" }, { id: tabId });
-	const caution = runScript('/src/tweaks/cautionIcon.js', [], {}, { id: tabId });
-	return [library, init, caution];
-}
+
+/*
+----
+RUN IN PAGE (using runscript)
+----
+*/
+
 
 async function startSessionReplay(token, tabId) {
-	const library = await runScript("./src/lib/eztrack-and-replay.js", [], { world: "MAIN" }, { id: tabId });
+	const library = await runScript("./src/lib/eztrack.js", [], { world: "MAIN" }, { id: tabId });
 	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	const replayLib = chrome.runtime.getURL('/src/lib/mixpanel-recorder.min.js');
-	const init = await runScript(sessionReplayInit, [token, { proxy, replayLib }, STORAGE.whoami], { world: "MAIN" }, { id: tabId });
+	const init = await runScript(sessionReplayInit, [token, { proxy }, STORAGE.whoami], { world: "MAIN" }, { id: tabId });
 	const caution = runScript('./src/tweaks/cautionIcon.js', [], {}, { id: tabId });
 	return [library, init, caution];
 
@@ -491,31 +469,41 @@ async function injectToolTip(tooltip) {
 		});
 	}
 
+	if (typeof tooltip === 'string') tooltip = { primary: tooltip };
+	if (typeof tooltip !== 'object') throw new Error('Invalid tooltip data');
+	if (!tooltip.primary) tooltip.primary = "";
+	if (!tooltip.secondary) tooltip.secondary = "";
+	if (tooltip.text && !tooltip.secondary) tooltip.primary = tooltip.text;
+	if (tooltip.tooltip && !tooltip.secondary && !tooltip.primary) tooltip.primary = tooltip.tooltip;
+
+	const html = `
+    <div class="banner-copy info-theme">
+        <header class="banner-header info-theme">${tooltip.primary}</header>
+        <div class="banner-body info-theme">
+            <div><span>${tooltip.secondary}</span></div>
+        </div>
+    </div>
+`.trim();
+
+
+
 	try {
-		console.log('mp-tweaks: waiting for mp-report-message-banner');
-
-		const messageBox = await waitForElement("mp-report-message-banner");
-		messageBox.setAttribute('visible', true);
-		messageBox.setAttribute('closeable', true);
-
-		console.log('mp-tweaks: waiting for mp-banner inside shadow DOM');
-
-		const mpBanner = await waitForElement("div > mp-banner", messageBox.shadowRoot);
-
-
-		console.log('mp-tweaks: waiting for banner-copy inside nested shadow DOM');
-		const messageToolTip = await waitForElement("div > div > div > div.banner-copy-no-header.banner-copy", mpBanner.shadowRoot);
-		messageToolTip.innerText = tooltip;
-		messageToolTip.style["fontSize"] = "18px";
-		messageToolTip.style["marginLeft"] = "10px";
-		messageToolTip.style["padding-top"] = "1px";
-
+		console.log('mp-tweaks: waiting for mp-report-message-banner; payload', tooltip);
+		const reportBanner = await waitForElement("mp-report-message-banner");
+		reportBanner.setAttribute('theme', "info");
+		reportBanner.setAttribute('size', "medium");
+		reportBanner.setAttribute('visible', "true");
+		reportBanner.setAttribute('closeable', "true");
+		const mpBanner = await waitForElement("mp-banner", reportBanner.shadowRoot);
+		const mpBannerContent = await mpBanner.shadowRoot.querySelector("div.banner-copy");
+		// replace mpBannerContent with html
+		mpBannerContent.innerHTML = html;
 		console.log('mp-tweaks: tooltip injected');
-	} catch (error) {
+	}
+	catch (error) {
 		console.error(error);
 	}
 }
-
 
 async function embedMixpanelSDK(tabId) {
 	const library = await runScript("./src/lib/mixpanel-embedded.js", [], { world: "MAIN" }, { id: tabId });
@@ -533,11 +521,6 @@ async function nukeCookies(domain = "mixpanel.com") {
 	return cookies.length;
 }
 
-/*
-----
-RUN IN PAGE (using runscript)
-----
-*/
 
 async function runScript(funcOrPath, args = [], opts, target) {
 	try {
@@ -620,33 +603,11 @@ function openNewTab(url, inBackground = false) {
 	});
 }
 
-function ezTrackInit(token, opts = {}) {
-	if (Object.keys(opts).length === 0) opts = { verbose: true, api_host: "https://express-proxy-lmozz6xkha-uc.a.run.app" };
-	let attempts = 0;
-
-	function tryInit() {
-		if (window.mpEZTrack) {
-			clearInterval(intervalId); // Clear the interval once mpEZTrack is found
-			mpEZTrack.init(token, opts, true); // Initialize mpEZTrack
-		} else {
-			attempts++;
-			console.log(`mp-tweaks: waiting for mpEZTrack ... attempt: ${attempts}`);
-			if (attempts > 15) {
-				clearInterval(intervalId);
-				console.log('mp-tweaks: mpEZTrack not found');
-			}
-
-		}
-	}
-
-	const intervalId = setInterval(tryInit, 1000);
-}
 
 function sessionReplayInit(token, opts = {}, user) {
 	let attempts = 0;
 	let intervalId;
 	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	const replayLib = opts.replayLib || 'https://cdn.mxpnl.com/libs/mixpanel-recorder.min.js';
 	if (!user) user = { name: 'anonymous', email: `anonymous-${Math.floor(Math.random() * 10000)}` };
 
 	function tryInit() {
@@ -657,14 +618,15 @@ function sessionReplayInit(token, opts = {}, user) {
 			window.addEventListener('mpEZTrackLoaded', () => {
 				console.log('mp-tweaks: ez track loaded');
 				mixpanel.ez.identify(user.email);
-				mixpanel.ez.track('TRACKING ON!');
 				mixpanel.ez.people.set({ $name: user.name, $email: user.email });
+				mixpanel.ez.track('TRACKING ON!');
 			});
 
 			mpEZTrack.init(token, {
 				record_sessions_percent: 100,
+				record_inline_images: true,
+				record_collect_fonts: true,
 				record_mask_text_selector: 'record-everything',
-				recorder_src: replayLib,
 				api_host: proxy,
 				loaded: function () {
 					console.log('mp-tweaks: session replay loaded');
@@ -672,8 +634,6 @@ function sessionReplayInit(token, opts = {}, user) {
 				}
 
 			}, true);
-
-			// window.SESSION_REPLAY_ACTIVE = true;
 		} else {
 			attempts++;
 			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}`);
