@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.29`;
+const APP_VERSION = `2.31`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -452,7 +452,7 @@ async function startSessionReplay(token, tabId) {
 }
 
 async function injectToolTip(tooltip) {
-	function waitForElement(selector, context = document, interval = 100, timeout = 30000) {
+	function waitForElement(selector, context = document, interval = 1000, timeout = 60000 * 60) {
 		return new Promise((resolve, reject) => {
 			const startTime = Date.now();
 
@@ -475,6 +475,7 @@ async function injectToolTip(tooltip) {
 	if (!tooltip.secondary) tooltip.secondary = "";
 	if (tooltip.text && !tooltip.secondary) tooltip.primary = tooltip.text;
 	if (tooltip.tooltip && !tooltip.secondary && !tooltip.primary) tooltip.primary = tooltip.tooltip;
+	if (!tooltip.primary && !tooltip.secondary) return; // no text to inject
 
 	const html = `
     <div class="banner-copy info-theme">
@@ -495,7 +496,7 @@ async function injectToolTip(tooltip) {
 		reportBanner.setAttribute('visible', "true");
 		reportBanner.setAttribute('closeable', "true");
 		const mpBanner = await waitForElement("mp-banner", reportBanner.shadowRoot);
-		const mpBannerContent = await mpBanner.shadowRoot.querySelector("div.banner-copy");
+		const mpBannerContent = mpBanner.shadowRoot.querySelector("div.banner-copy");
 		// replace mpBannerContent with html
 		mpBannerContent.innerHTML = html;
 		console.log('mp-tweaks: tooltip injected');
