@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.31`;
+const APP_VERSION = `2.30`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -627,14 +627,47 @@ function sessionReplayInit(token, opts = {}, user) {
 				record_sessions_percent: 100,
 				record_inline_images: true,
 				record_collect_fonts: true,
-				record_mask_text_selector: 'record-everything',
+				record_mask_text_selector: 'recordall',
+				ignore_dnt: true,
+				batch_flush_interval_ms: 0,				
 				api_host: proxy,
 				loaded: function () {
 					console.log('mp-tweaks: session replay loaded');
 					window.SESSION_REPLAY_ACTIVE = true;
-				}
+				},
+				debug: true,
+				extend: true,
+				refresh: 0,
+				location: true,
+				persistence: "localStorage",
+	
+				//default on
+				deviceProps: true,
+				pageView: true,
+				pageExit: true,
+				links: true,
+				buttons: true,
+				forms: true,
+				profiles: true,
+				selectors: true,
+				videos: true,
+				window: false,
+				spa: true,
+	
+				//default off
+				inputs: true,
+				clicks: true,
+				youtube: false,
+	
+				clipboard: true,
+				firstPage: true,
+				error: true,
+				tabs: true,
+	
+				//undocumented, for ez debugging
+				logProps: true
 
-			}, true);
+			});
 		} else {
 			attempts++;
 			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}`);
