@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.30`;
+const APP_VERSION = `2.31`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -213,18 +213,21 @@ async function handleRequest(request) {
 			break;
 
 		case 'start-replay':
+			await relaxCSP();
 			STORAGE.sessionReplay.enabled = true;
 			if (request?.data?.token && request?.data?.tabId) {
 				STORAGE.sessionReplay.token = request.data.token;
 				STORAGE.sessionReplay.tabId = request.data.tabId;
 				await setStorage(STORAGE);
 			}
-			var { token, tabId } = STORAGE.sessionReplay;
-			if (token && tabId) result = await startSessionReplay(token, tabId);
+			// var { token, tabId } = STORAGE.sessionReplay;
+			// if (token && tabId) result = await startSessionReplay(token, tabId);
+			await runScript(reload);
 			await updateIconBasedOnHeaders(STORAGE.sessionReplay.enabled);
 			break;
 
 		case 'stop-replay':
+			await resetCSP();
 			STORAGE.sessionReplay.enabled = false;
 			result = false;
 			await setStorage(STORAGE);
@@ -316,6 +319,7 @@ RUN IN WORKER
 */
 
 async function updateHeaders(headers = [{ "foo": "bar", enabled: false }]) {
+	await removeHeaders();
 	try {
 		const requestHeaders = headers
 			.filter(h => h.enabled)
@@ -370,6 +374,53 @@ async function removeHeaders() {
 		console.error('mp-tweaks: error removing headers:', e);
 		return e;
 
+	}
+}
+
+async function relaxCSP() {
+	await removeHeaders();
+	try {
+		const responseHeaders = [{
+			header: "content-security-policy",
+			operation: "remove"
+		}];
+
+		const update = await chrome.declarativeNetRequest.updateDynamicRules({
+			removeRuleIds: [1],
+			addRules: [{
+				id: 1,
+				priority: 1,
+				action: {
+					type: "modifyHeaders",
+					responseHeaders
+				},
+				condition: {
+					urlFilter: "*",
+					resourceTypes: ["main_frame", "sub_frame", "xmlhttprequest", "script"]
+				}
+			}]
+		});
+
+		return update;
+	}
+	catch (e) {
+		console.error('mp-tweaks: error updating CSP headers:', e);
+		return e;
+	}
+}
+
+async function resetCSP() {
+	try {
+		// This removes all dynamic rules, effectively restoring original CSP behavior
+		const update = await chrome.declarativeNetRequest.updateDynamicRules({
+			removeRuleIds: [1],  // Remove our CSP modification rule
+			addRules: []  // Don't add any new rules
+		});
+		return update;
+	}
+	catch (e) {
+		console.error('mp-tweaks: error resetting CSP headers:', e);
+		return e;
 	}
 }
 
@@ -450,6 +501,7 @@ async function startSessionReplay(token, tabId) {
 	return [library, init, caution];
 
 }
+
 
 async function injectToolTip(tooltip) {
 	function waitForElement(selector, context = document, interval = 1000, timeout = 60000 * 60) {
@@ -604,7 +656,6 @@ function openNewTab(url, inBackground = false) {
 	});
 }
 
-
 function sessionReplayInit(token, opts = {}, user) {
 	let attempts = 0;
 	let intervalId;
@@ -618,9 +669,15 @@ function sessionReplayInit(token, opts = {}, user) {
 			clearInterval(intervalId);
 			window.addEventListener('mpEZTrackLoaded', () => {
 				console.log('mp-tweaks: ez track loaded');
-				mixpanel.ez.identify(user.email);
-				mixpanel.ez.people.set({ $name: user.name, $email: user.email });
-				mixpanel.ez.track('TRACKING ON!');
+				// mixpanel.ez.reset();
+				// console.log('identity reset');				
+				let { email, name } = user;
+				if (!email) email = mixpanel.ez.get_property('$device_id') || `anonymous-${Math.floor(Math.random() * 10000)}`;
+				if (!name) name = 'anonymous';
+				mixpanel.ez.identify(email);
+				mixpanel.ez.people.set({ $name: name, $email: email });
+				mixpanel.ez.register({ distinct_id: email });
+				// mixpanel.ez.track('TRACKING ON!');
 			});
 
 			mpEZTrack.init(token, {
@@ -629,7 +686,7 @@ function sessionReplayInit(token, opts = {}, user) {
 				record_collect_fonts: true,
 				record_mask_text_selector: 'recordall',
 				ignore_dnt: true,
-				batch_flush_interval_ms: 0,				
+				batch_flush_interval_ms: 0,
 				api_host: proxy,
 				loaded: function () {
 					console.log('mp-tweaks: session replay loaded');
@@ -639,8 +696,9 @@ function sessionReplayInit(token, opts = {}, user) {
 				extend: true,
 				refresh: 0,
 				location: true,
+				api_transport: 'XHR',
 				persistence: "localStorage",
-	
+
 				//default on
 				deviceProps: true,
 				pageView: true,
@@ -653,17 +711,17 @@ function sessionReplayInit(token, opts = {}, user) {
 				videos: true,
 				window: false,
 				spa: true,
-	
+
 				//default off
 				inputs: true,
 				clicks: true,
 				youtube: false,
-	
+
 				clipboard: true,
 				firstPage: true,
 				error: true,
 				tabs: true,
-	
+
 				//undocumented, for ez debugging
 				logProps: true
 
@@ -909,7 +967,12 @@ async function getUser() {
 		}
 	}
 	catch (err) {
-		console.error('mp-tweaks: get user err', err);
+		if (err?.message?.includes('JSON')) {
+			console.log('mp-tweaks: user is not logged in');
+		}
+		else {
+			console.error('mp-tweaks: get user err', err);
+		}
 	}
 
 	return user;

@@ -1,6 +1,6 @@
 {
   "name": "mptweaks",
-  "version": "2.30",
+  "version": "2.31",
   "description": "a chrome extension to tweak mixpanel",
   "main": "index.js",
   "scripts": {
