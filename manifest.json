@@ -34,7 +34,7 @@
 			]
 		},
 		{
-			"resources": ["src/lib/eztrack.js", "src/lib/mixpanel-embedded.js"],
+			"resources": ["src/lib/mixpanel-embedded.js"],
 			"matches": ["*://*/*"]
 		}
 	],

@@ -494,11 +494,11 @@ RUN IN PAGE (using runscript)
 
 
 async function startSessionReplay(token, tabId) {
-	const library = await runScript("./src/lib/eztrack.js", [], { world: "MAIN" }, { id: tabId });
+	//const library = await runScript("./src/lib/eztrack.js", [], { world: "MAIN" }, { id: tabId });
 	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
 	const init = await runScript(sessionReplayInit, [token, { proxy }, STORAGE.whoami], { world: "MAIN" }, { id: tabId });
 	const caution = runScript('./src/tweaks/cautionIcon.js', [], {}, { id: tabId });
-	return [library, init, caution];
+	return [init, caution];
 
 }
 
@@ -660,70 +660,50 @@ function sessionReplayInit(token, opts = {}, user) {
 	let attempts = 0;
 	let intervalId;
 	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	if (!user) user = { name: 'anonymous', email: `anonymous-${Math.floor(Math.random() * 10000)}` };
+	// if (!user) user = { name: 'anonymous', email: `anonymous-${Math.floor(Math.random() * 10000)}` };
+	const MIXPANEL_CUSTOM_LIB_URL = 'https://cdn-dev.mxpnl.com/libs/mixpanel-ac-alpha.js';
+	(function (f, b) { if (!b.__SV) { var e, g, i, h; window.mixpanel = b; b._i = []; b.init = function (e, f, c) { function g(a, d) { var b = d.split("."); 2 == b.length && ((a = a[b[0]]), (d = b[1])); a[d] = function () { a.push([d].concat(Array.prototype.slice.call(arguments, 0))); }; } var a = b; "undefined" !== typeof c ? (a = b[c] = []) : (c = "mixpanel"); a.people = a.people || []; a.toString = function (a) { var d = "mixpanel"; "mixpanel" !== c && (d += "." + c); a || (d += " (stub)"); return d; }; a.people.toString = function () { return a.toString(1) + ".people (stub)"; }; i = "disable time_event track track_pageview track_links track_forms track_with_groups add_group set_group remove_group register register_once alias unregister identify name_tag set_config reset opt_in_tracking opt_out_tracking has_opted_in_tracking has_opted_out_tracking clear_opt_in_out_tracking start_batch_senders people.set people.set_once people.unset people.increment people.append people.union people.track_charge people.clear_charges people.delete_user people.remove".split(" "); for (h = 0; h < i.length; h++) g(a, i[h]); var j = "set set_once union unset remove delete".split(" "); a.get_group = function () { function b(c) { d[c] = function () { call2_args = arguments; call2 = [c].concat(Array.prototype.slice.call(call2_args, 0)); a.push([e, call2]); }; } for (var d = {}, e = ["get_group"].concat(Array.prototype.slice.call(arguments, 0)), c = 0; c < j.length; c++) b(j[c]); return d; }; b._i.push([e, f, c]); }; b.__SV = 1.2; e = f.createElement("script"); e.type = "text/javascript"; e.async = !0; e.src = "undefined" !== typeof MIXPANEL_CUSTOM_LIB_URL ? MIXPANEL_CUSTOM_LIB_URL : "file:" === f.location.protocol && "//cdn.mxpnl.com/libs/mixpanel-2-latest.min.js".match(/^\/\//) ? "https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js" : "//cdn.mxpnl.com/libs/mixpanel-2-latest.min.js"; g = f.getElementsByTagName("script")[0]; g.parentNode.insertBefore(e, g); } })(document, window.mixpanel || []);
+
 
 	function tryInit() {
 		// @ts-ignore
-		if (window.mpEZTrack && !window.SESSION_REPLAY_ACTIVE) {
+		if (window.mixpanel && !window.SESSION_REPLAY_ACTIVE) {
 			console.log('mp-tweaks: turning on session replay');
 			clearInterval(intervalId);
-			window.addEventListener('mpEZTrackLoaded', () => {
-				console.log('mp-tweaks: ez track loaded');
-				// mixpanel.ez.reset();
-				// console.log('identity reset');				
-				let { email, name } = user;
-				if (!email) email = mixpanel.ez.get_property('$device_id') || `anonymous-${Math.floor(Math.random() * 10000)}`;
-				if (!name) name = 'anonymous';
-				mixpanel.ez.identify(email);
-				mixpanel.ez.people.set({ $name: name, $email: email });
-				mixpanel.ez.register({ distinct_id: email });
-				// mixpanel.ez.track('TRACKING ON!');
-			});
 
-			mpEZTrack.init(token, {
+			mixpanel.init(token, {
+
+				// autocapture
+				autocapture: {
+					pageview: "full-url",
+					click: true,
+					input: true,
+					scroll: true,
+					submit: true,
+					capture_text_content: true
+				},
+
+				//session replay
 				record_sessions_percent: 100,
 				record_inline_images: true,
 				record_collect_fonts: true,
-				record_mask_text_selector: 'recordall',
+				record_mask_text_selector: 'nothing',
+				record_block_selector: "nothing",
+				record_block_class: "nothing",
+
+				//normal mixpanel
 				ignore_dnt: true,
 				batch_flush_interval_ms: 0,
 				api_host: proxy,
 				loaded: function () {
-					console.log('mp-tweaks: session replay loaded');
+					console.log('mp-tweaks: session replay + autocapture loaded');
 					window.SESSION_REPLAY_ACTIVE = true;
 				},
 				debug: true,
-				extend: true,
-				refresh: 0,
-				location: true,
 				api_transport: 'XHR',
 				persistence: "localStorage",
 
-				//default on
-				deviceProps: true,
-				pageView: true,
-				pageExit: true,
-				links: true,
-				buttons: true,
-				forms: true,
-				profiles: true,
-				selectors: true,
-				videos: true,
-				window: false,
-				spa: true,
 
-				//default off
-				inputs: true,
-				clicks: true,
-				youtube: false,
-
-				clipboard: true,
-				firstPage: true,
-				error: true,
-				tabs: true,
-
-				//undocumented, for ez debugging
-				logProps: true
 
 			});
 		} else {
