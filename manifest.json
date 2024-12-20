@@ -34,7 +34,7 @@
 			]
 		},
 		{
-			"resources": ["src/lib/mixpanel-embedded.js"],
+			"resources": ["src/lib/mixpanel-embedded.js", "src/lib/mixpanel-ac-alpha.js"],
 			"matches": ["*://*/*"]
 		}
 	],
