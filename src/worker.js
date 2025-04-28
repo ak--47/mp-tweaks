@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.31`;
+const APP_VERSION = `2.32`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -199,6 +199,10 @@ async function handleRequest(request) {
 			// if (result?.url) await openNewTab(result.url, true);
 			break;
 
+		case 'reset-user':
+			await resetStorageData();
+			result = (await init())?.whoami;
+			break;
 		case 'catch-fetch':
 			const [scriptOutput] = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
 			const { target, data } = scriptOutput.result;
@@ -362,20 +366,40 @@ async function updateHeaders(headers = [{ "foo": "bar", enabled: false }]) {
 	}
 }
 
+// async function removeHeaders() {
+// 	try {
+// 		const update = await chrome.declarativeNetRequest.updateDynamicRules({
+// 			removeRuleIds: [1],  // Clear the previous rule if it exists
+// 		});
+
+// 		return update;
+// 	}
+// 	catch (e) {
+// 		console.error('mp-tweaks: error removing headers:', e);
+// 		return e;
+
+// 	}
+// }
+
 async function removeHeaders() {
 	try {
-		const update = await chrome.declarativeNetRequest.updateDynamicRules({
-			removeRuleIds: [1],  // Clear the previous rule if it exists
-		});
+		// Get all existing dynamic rules
+		const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+		const existingRuleIds = existingRules.map(rule => rule.id);
 
-		return update;
+		if (existingRuleIds.length === 0) return; // nothing to remove
+
+		// Remove all active dynamic rules
+		await chrome.declarativeNetRequest.updateDynamicRules({
+			removeRuleIds: existingRuleIds
+		});
 	}
 	catch (e) {
 		console.error('mp-tweaks: error removing headers:', e);
-		return e;
-
+		throw e;
 	}
 }
+
 
 async function relaxCSP() {
 	await removeHeaders();
@@ -494,7 +518,7 @@ RUN IN PAGE (using runscript)
 
 
 async function startSessionReplay(token, tabId) {
-	const library = await injectMixpanelSDK(tabId);	
+	const library = await injectMixpanelSDK(tabId);
 	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
 	const init = await runScript(sessionReplayInit, [token, { proxy }, STORAGE.whoami], { world: "MAIN" }, { id: tabId });
 	const caution = runScript('./src/tweaks/cautionIcon.js', [], {}, { id: tabId });
@@ -560,13 +584,15 @@ async function injectToolTip(tooltip) {
 
 async function injectMixpanelSDK(tabId) {
 	console.log('mp-tweaks: injecting mixpanel SDK');
-	// First, read the content of your mixpanel-embedded.js file
-	const response = await fetch(chrome.runtime.getURL('/src/lib/mixpanel-embedded.js'));
+	// First, read the content of your mixpanel-snippet.js file
+	const response = await fetch(chrome.runtime.getURL('/src/lib/mixpanel-snippet.js'));
 	let code = await response.text();
 
 	// Replace the URL in the code
-	const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-ac-alpha.js');
-	code = code.replace('chrome.runtime.getURL("/src/lib/mixpanel-ac-alpha.js")', `"${mixpanelUrl}"`);
+	// const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-ac-alpha.js');
+	// const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-dev-jakub.js');
+	const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel.min.js');
+	code = code.replace('chrome.runtime.getURL("/src/lib/mixpanel.min.js")', `"${mixpanelUrl}"`);
 
 	// Inject the modified code
 	const injection = await chrome.scripting.executeScript({
@@ -681,6 +707,7 @@ function sessionReplayInit(token, opts = {}, user) {
 	let attempts = 0;
 	let intervalId;
 	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
+	const addTracking = opts.addTracking || false;
 
 	function tryInit() {
 		// @ts-ignore
@@ -713,8 +740,14 @@ function sessionReplayInit(token, opts = {}, user) {
 				ignore_dnt: true,
 				batch_flush_interval_ms: 0,
 				api_host: proxy,
-				loaded: function () {
-					console.log('mp-tweaks: session replay + autocapture loaded');					
+				loaded: function (mp) {
+					console.log('mp-tweaks: session replay + autocapture loaded');
+					// if (addTracking) {
+					// 	setTimeout(() => {
+					// 		mp.track('page view');
+					// 	}, 100);
+					// 	window.addEventListener('click', () => { mp.track('page click'); });
+					// }
 				},
 				debug: true,
 				api_transport: 'XHR',
@@ -734,7 +767,7 @@ function sessionReplayInit(token, opts = {}, user) {
 		}
 	}
 
-	intervalId = setInterval(tryInit, 1500);
+	intervalId = setInterval(tryInit, 2500);
 
 }
 

@@ -1,6 +1,6 @@
 {
 	"name": "MP Tweaks!",
-	"version": "2.31",
+	"version": "2.32",
 	"manifest_version": 3,
 	"description": "this is an extension (by AK) to add feature flags to Mixpanel",
 	"homepage_url": "https://mixpanel.com",
@@ -34,7 +34,7 @@
 			]
 		},
 		{
-			"resources": ["src/lib/mixpanel-embedded.js", "src/lib/mixpanel-ac-alpha.js"],
+			"resources": ["src/lib/mixpanel-snippet.js", "src/lib/mixpanel.min.js"],
 			"matches": ["*://*/*"]
 		}
 	],

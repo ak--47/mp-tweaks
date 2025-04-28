@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.31`;
+const APP_VERSION = `2.32`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 
@@ -13,6 +13,14 @@ const APP = {
 		{ name: 'featureFlags', url: FEATURE_FLAG_URI },
 		{ name: 'demoLinks', url: DEMO_GROUPS_URI }
 	],
+	tools: {
+		"dm3": "https://dm3.mixpanel.org",
+		"dm lite": "https://dm3.mixpanel.org/lite",
+		"power tools": "https://mixpanel-power-tools-gui-lmozz6xkha-uc.a.run.app/",
+		"replay sim": "https://npc-mixpanel-lmozz6xkha-uc.a.run.app/",
+		"bq perms": "https://us-central1-mixpanel-gtm-training.cloudfunctions.net/mp-bq-iam-demo"
+
+	},
 	DOM: {},
 	cacheDOM,
 	bindListeners,
@@ -323,6 +331,9 @@ function cacheDOM() {
 	this.DOM.demoLinks = document.querySelector('#demoLinks');
 	this.DOM.demoLinksWrapper = document.querySelector('#demoLinks > #buttons');
 
+	//tools
+	this.DOM.tools = document.querySelector('#toolsWrapper');
+
 	//feature flags
 	this.DOM.perTab = document.querySelector('#perTab');
 	this.DOM.buttonWrapper = document.querySelector('#perTab > #buttons');
@@ -349,6 +360,7 @@ function cacheDOM() {
 
 	//project creator
 	this.DOM.makeProject = document.querySelector('#makeProject');
+	this.DOM.resetUser = document.querySelector('#resetUser');
 	this.DOM.projectDetails = document.querySelector('#projectDetails textarea');
 	this.DOM.makeProjectSpinner = document.querySelector('#makeProjectSpinner');
 	this.DOM.orgLabel = document.querySelector('#orgLabel');
@@ -385,7 +397,7 @@ function cacheDOM() {
 
 function loadInterface() {
 	try {
-		const { persistScripts, whoami,  sessionReplay, modHeaders } = STORAGE;
+		const { persistScripts, whoami, sessionReplay, modHeaders } = STORAGE;
 
 		//load toggle states
 		APP.setCheckbox(persistScripts);
@@ -430,6 +442,22 @@ function loadInterface() {
 
 		//version
 		this.DOM.versionLabel.textContent = `v${APP_VERSION}`;
+
+		//tool buttons
+		if (Object.keys(APP.tools)?.length > 0) {
+			for (const tool in APP.tools) {
+				const url = APP.tools[tool];
+				const newButton = document.createElement('BUTTON');
+				newButton.setAttribute('class', 'button fa');
+				newButton.setAttribute('id', tool);
+				newButton.appendChild(document.createTextNode(tool.toUpperCase()));
+				newButton.onclick = async () => {
+					track('tool button', { tool });
+					await openNewTab(url, true);
+				};
+				this.DOM.tools.appendChild(newButton);
+			}
+		}
 	}
 	catch (e) {
 		track('error: loadInterface', { error: e });
@@ -478,6 +506,31 @@ function bindListeners() {
 
 			this.DOM.makeProjectSpinner.classList.add('hidden');
 			this.DOM.projectDetails.classList.remove('hidden');
+			this.DOM.makeProject.disabled = false;
+
+		});
+
+		//RESET USER
+		this.DOM.resetUser.addEventListener('click', async () => {
+			this.DOM.projectDetails.classList.add('hidden');
+			this.DOM.makeProjectSpinner.classList.remove('hidden');
+			this.DOM.makeProject.disabled = true;
+
+			try {
+				const newUser = await messageWorker('reset-user');
+				const { orgId, orgName, name, id } = newUser;
+				this.DOM.orgLabel.classList.remove('hidden');
+				this.DOM.orgPlaceholder.textContent = `${orgName} (${orgId})`;
+				track('reset-user', { name, id });
+
+			}
+			catch (e) {
+				track('error: reset-user', { error: e });
+				this.DOM.projectDetails.value = `Error!\n${e}`;
+			}
+
+			this.DOM.makeProjectSpinner.classList.add('hidden');
+			this.DOM.projectDetails.classList.add('hidden');
 			this.DOM.makeProject.disabled = false;
 
 		});
@@ -761,7 +814,7 @@ function buildDemoButtons(demo, data) {
 function groupBy(objects, field = 'TITLE') {
 	return objects.reduce((acc, obj) => {
 		const key = obj[field];
-		if (!acc[key]) {	
+		if (!acc[key]) {
 			acc[key] = [];
 		}
 		acc[key].push(obj);
