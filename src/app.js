@@ -224,6 +224,7 @@ function listenForWorker() {
 			case "caught-request":
 				const { data: request } = message;
 				APP.queryBuilderHandleCatch(request);
+				break;
 			case "refresh-storage":
 				APP.getStorage().then(() => {
 					APP.loadInterface();
@@ -246,6 +247,7 @@ function listenForWorker() {
 				break;
 		}
 
+		return true; // Keep the message channel open for sendResponse
 	});
 }
 

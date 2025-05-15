@@ -55,7 +55,7 @@ async function init() {
 		}
 		await setStorage(STORAGE);
 	}
-	if (!STORAGE?.whoami?.email) {
+	if (STORAGE?.whoami?.email) {
 		track = analytics(STORAGE?.whoami?.email, { component: "worker", name: STORAGE?.whoami?.name, $email: STORAGE?.whoami?.email, version: APP_VERSION });
 	}
 	else {
