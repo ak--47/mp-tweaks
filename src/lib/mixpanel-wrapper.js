@@ -1,10 +1,12 @@
+/* cSpell:disable */
 // ==ClosureCompiler==
 // @compilation_level SIMPLE_OPTIMIZATIONS
 // @output_file_name mixpanel-jslib-2.2-snippet.min.js
 // ==/ClosureCompiler==
+// @ts-nocheck
 
 /** @define {string} */
-var MIXPANEL_LIB_URL = '/lib/mixpanel.min.js';
+var MIXPANEL_LIB_URL = '/lib/mixpanel-full.js';
 
 (function(document, mixpanel) {
     // Only stub out if this is the first time running the snippet.

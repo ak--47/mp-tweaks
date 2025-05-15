@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.32`;
+const APP_VERSION = `2.34`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -20,9 +20,7 @@ const STORAGE_MODEL = {
 	persistScripts: [],
 	serviceAcct: { user: '', pass: '' },
 	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
-
 	sessionReplay: { token: "", enabled: false, tabId: 0 },
-	EZTrack: { token: "", enabled: false, tabId: 0 },
 	verbose: true,
 	modHeaders: { headers: [], enabled: false },
 	last_updated: Date.now(),
@@ -38,25 +36,33 @@ RUNTIME
 ----
 */
 
+let storageInitialized = false;
 async function init() {
-
+	if (storageInitialized) return STORAGE;
 	STORAGE = await getStorage();
 	if (!haveSameShape(STORAGE, STORAGE_MODEL) || STORAGE.version !== APP_VERSION) {
 		console.log("mp-tweaks: reset");
 		await resetStorageData();
 	}
 
-	if (!STORAGE?.whoami?.email) {
+	if (!STORAGE?.whoami?.email || !STORAGE?.whoami?.email?.includes('@mixpanel.com')) {
 		console.log("mp-tweaks: getting user");
 		const user = await getUser();
 		if (user.email) {
 			STORAGE.whoami = user;
 			const { email, name } = user;
-			track = analytics(email, { component: "worker", name, $email: email, version: APP_VERSION });
+
 		}
 		await setStorage(STORAGE);
 	}
+	if (!STORAGE?.whoami?.email) {
+		track = analytics(STORAGE?.whoami?.email, { component: "worker", name: STORAGE?.whoami?.name, $email: STORAGE?.whoami?.email, version: APP_VERSION });
+	}
+	else {
+		console.log("mp-tweaks: unknown user infos", STORAGE?.whoami);
+	}
 
+	storageInitialized = true;
 	return STORAGE;
 }
 
@@ -76,8 +82,12 @@ HOOKS
 //install
 chrome.runtime.onInstalled.addListener((details) => {
 	console.log('mp-tweaks: Extension Installed');
-	track('install', details);
+	track('worker: install', details);
 	return;
+});
+
+chrome.runtime.onStartup.addListener(() => {
+	init();
 });
 
 //open tabs
@@ -85,12 +95,13 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 	if (changeInfo.status === 'complete') {
 
 		// mixpanel tweaks
-		if (tab.url.includes('mixpanel.com')) {
-			track('mixpanel page loaded', { url: tab.url });
+		if (tab.url && tab.url.includes('mixpanel.com')) {
+			console.log('mp-tweaks: Mixpanel page loaded');
 
 			// persist scripts
 			if ((tab.url.includes('project') || tab.url.includes('report'))) {
-				console.log('mp-tweaks: Mixpanel page loaded');
+				track('worker: mp page', { url: tab.url });
+				console.log('mp-tweaks: project page loaded');
 				const userScripts = STORAGE?.persistScripts || [];
 				for (const script of userScripts) {
 					if (SCRIPTS[script]) {
@@ -130,10 +141,6 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 
 // closed tabs
 chrome.tabs.onRemoved.addListener(function (tabId, removeInfo) {
-	if (tabId === STORAGE?.EZTrack?.tabId) {
-		STORAGE.EZTrack.enabled = false;
-		setStorage(STORAGE);
-	}
 	if (tabId === STORAGE?.sessionReplay?.tabId) {
 		STORAGE.sessionReplay.enabled = false;
 		setStorage(STORAGE);
@@ -147,7 +154,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 	handleRequest(request)
 		.then((result) => {
 			console.log(`mp-tweaks: completed ${request.action}`);
-			if (result) sendResponse(result);
+			sendResponse(result);
 		})
 		.catch(error => {
 			console.error('Error handling request:', error);
@@ -172,6 +179,8 @@ async function handleRequest(request) {
 	if (!request.action) throw new Error('No action provided');
 	let result = null;
 	const catchFetchUri = chrome.runtime.getURL('/src/tweaks/catchFetch.js');
+	const reqId = uid();
+	track('worker start', { action: request.action, data: request.data, reqId });
 	switch (request.action) {
 		case 'refresh-storage':
 			result = await refreshStorageData();
@@ -203,6 +212,7 @@ async function handleRequest(request) {
 			await resetStorageData();
 			result = (await init())?.whoami;
 			break;
+
 		case 'catch-fetch':
 			const [scriptOutput] = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
 			const { target, data } = scriptOutput.result;
@@ -291,7 +301,6 @@ async function handleRequest(request) {
 			result = await openNewTab(request.data.url, true);
 			if (result.id && request.data) {
 				await runScript(injectToolTip, [request.data], { world: 'MAIN' }, result);
-
 			}
 			break;
 
@@ -300,6 +309,7 @@ async function handleRequest(request) {
 			track('unknown-action', { request: request });
 			result = "Unknown action";
 	}
+	track('worker end', { action: request.action, result: result, reqId });
 	return result;
 }
 
@@ -323,79 +333,90 @@ RUN IN WORKER
 */
 
 async function updateHeaders(headers = [{ "foo": "bar", enabled: false }]) {
+	// clear out any old rules
 	await removeHeaders();
-	try {
-		const requestHeaders = headers
-			.filter(h => h.enabled)
-			.map((o) => {
-				const { enabled, ...rest } = o;
-				return rest;
-			})
-			.map((o) => {
-				return {
-					header: Object.keys(o)[0],
-					operation: "set",
-					value: Object.values(o)[0]
-				};
-			});
 
-		if (requestHeaders.length === 0) return await removeHeaders();
-
-		const update = await chrome.declarativeNetRequest.updateDynamicRules({
-			removeRuleIds: [1],  // Clear the previous rule if it exists
-			addRules: [{
-				id: 1,
-				priority: 1,
-				action: {
-					type: "modifyHeaders",
-					requestHeaders
-				},
-				condition: {
-					urlFilter: "*",  // This wildcard matches all URLs
-					resourceTypes: ["main_frame", "sub_frame", "xmlhttprequest", "script", "other"]
-				}
-			}]
+	// build the array of set-ops
+	const setOps = headers
+		.filter(h => h.enabled)
+		.map(({ enabled, ...h }) => {
+			const name = Object.keys(h)[0];
+			return { header: name, operation: "set", value: h[name] };
 		});
 
-		return update;
+	if (setOps.length === 0) {
+		// nothing to do
+		return await removeHeaders();
 	}
-	catch (e) {
-		console.error('mp-tweaks: error updating headers:', e);
-		return e;
 
-	}
+	// build the corresponding remove-ops for rule 2
+	const removeOps = setOps.map(({ header }) => ({
+		header,
+		operation: "remove"
+	}));
+
+	const rules = [
+		{
+			id: 1,
+			priority: 1,
+			action: {
+				type: "modifyHeaders",
+				requestHeaders: setOps
+			},
+			condition: {
+				urlFilter: "*",
+				resourceTypes: [
+					"main_frame",
+					"sub_frame",
+					"xmlhttprequest",
+					"script",
+					"other"
+				]
+			}
+		},
+		{
+			id: 2,
+			priority: 2,
+			action: {
+				type: "modifyHeaders",
+				requestHeaders: removeOps
+			},
+			condition: {
+				// use regexFilter with anchors so only the *exact* URLs match
+				regexFilter: "^(?:https://mixpanel\\.com/settings/account|https://mixpanel\\.com/oauth/access_token)$",
+				resourceTypes: [
+					"main_frame",
+					"sub_frame",
+					"xmlhttprequest",
+					"script",
+					"other"
+				]
+			}
+		}
+	];
+
+	return chrome.declarativeNetRequest.updateDynamicRules({
+		removeRuleIds: [1, 2],
+		addRules: rules
+	});
 }
-
-// async function removeHeaders() {
-// 	try {
-// 		const update = await chrome.declarativeNetRequest.updateDynamicRules({
-// 			removeRuleIds: [1],  // Clear the previous rule if it exists
-// 		});
-
-// 		return update;
-// 	}
-// 	catch (e) {
-// 		console.error('mp-tweaks: error removing headers:', e);
-// 		return e;
-
-// 	}
-// }
 
 async function removeHeaders() {
 	try {
-		// Get all existing dynamic rules
+		// 1. grab every dynamic rule you've ever added
 		const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
-		const existingRuleIds = existingRules.map(rule => rule.id);
+		const existingRuleIds = existingRules.map(r => r.id);
 
-		if (existingRuleIds.length === 0) return; // nothing to remove
-
-		// Remove all active dynamic rules
-		await chrome.declarativeNetRequest.updateDynamicRules({
-			removeRuleIds: existingRuleIds
-		});
+		// 2. if there’s anything to remove, nuke it
+		if (existingRuleIds.length > 0) {
+			await chrome.declarativeNetRequest.updateDynamicRules({
+				removeRuleIds: existingRuleIds,
+				addRules: []   // explicitly add nothing
+			});
+		}
 	}
 	catch (e) {
-		console.error('mp-tweaks: error removing headers:', e);
+		console.error('mp-tweaks: error clearing dynamic rules', e);
 		throw e;
 	}
 }
@@ -472,7 +493,7 @@ async function makeProject() {
 		1673847, // SE Demo
 		1866253 // Demo Projects
 	];
-	const { orgId = "", oauthToken = "" } = STORAGE.whoami;
+	const { orgId = "", oauthToken = "" } = STORAGE?.whoami;
 	if (!orgId || !oauthToken) return;
 	const url = `https://mixpanel.com/api/app/organizations/${orgId}/create-project`;
 	const projectPayload = {
@@ -512,7 +533,7 @@ async function makeProject() {
 
 /*
 ----
-RUN IN PAGE (using runscript)
+RUN IN PAGE (using runScript())
 ----
 */
 
@@ -520,7 +541,7 @@ RUN IN PAGE (using runscript)
 async function startSessionReplay(token, tabId) {
 	const library = await injectMixpanelSDK(tabId);
 	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	const init = await runScript(sessionReplayInit, [token, { proxy }, STORAGE.whoami], { world: "MAIN" }, { id: tabId });
+	const init = await runScript(sessionReplayInit, [token, { proxy }, STORAGE?.whoami], { world: "MAIN" }, { id: tabId });
 	const caution = runScript('./src/tweaks/cautionIcon.js', [], {}, { id: tabId });
 	return [library, init, caution];
 
@@ -591,8 +612,8 @@ async function injectMixpanelSDK(tabId) {
 	// Replace the URL in the code
 	// const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-ac-alpha.js');
 	// const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-dev-jakub.js');
-	const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel.min.js');
-	code = code.replace('chrome.runtime.getURL("/src/lib/mixpanel.min.js")', `"${mixpanelUrl}"`);
+	const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-full.js');
+	code = code.replace('chrome.runtime.getURL("/src/lib/mixpanel-full.js")', `"${mixpanelUrl}"`);
 
 	// Inject the modified code
 	const injection = await chrome.scripting.executeScript({
@@ -735,6 +756,8 @@ function sessionReplayInit(token, opts = {}, user) {
 				record_mask_text_selector: 'nothing',
 				record_block_selector: "nothing",
 				record_block_class: "nothing",
+				record_canvas: true,
+				record_heatmap_data: true,
 
 				//normal mixpanel
 				ignore_dnt: true,
@@ -977,6 +1000,7 @@ async function getUser() {
 				const { user_name = "", user_email = "" } = data.results;
 				if (user_name) user.name = user_name;
 				if (user_email) user.email = user_email;
+				if (!user_email.includes('@mixpanel.com')) throw new Error(`${user_email} not a mixpanel employee`);
 				const foundOrg = Object.values(data.results.organizations).filter(o => o.name.includes(user_name))?.pop();
 				if (foundOrg) {
 					user.orgId = foundOrg.id?.toString();
@@ -1009,7 +1033,20 @@ async function getUser() {
 }
 
 function analytics(user_id, superProps = {}, token = "99526f575a41223fcbadd9efdd280c7e", url = "https://api.mixpanel.com/track?verbose=1") {
+	const blacklist = ['oauthToken'];
 	return function (eventName = "ping", props = {}, callback = (res) => { }) {
+		try {
+			for (const key in props) {
+				if (blacklist.includes(key)) {
+					delete props[key];
+				}
+			}
+		}
+
+		catch (err) {
+			console.error('mp-tweaks: analytics error; event:', eventName, 'props:', props, 'error', err);
+			callback({});
+		}
 		try {
 			const headers = {
 				"Content-Type": "application/json",
@@ -1055,6 +1092,19 @@ function analytics(user_id, superProps = {}, token = "99526f575a41223fcbadd9efdd
 	};
 }
 
+
+
+function uid(length = 32) {
+	//https://stackoverflow.com/a/1349426/4808195
+	var result = [];
+	var characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+	var charactersLength = characters.length;
+	for (var i = 0; i < length; i++) {
+		result.push(characters.charAt(Math.floor(Math.random() *
+			charactersLength)));
+	}
+	return result.join('');
+};
 
 // hack for typescript
 let module = {};

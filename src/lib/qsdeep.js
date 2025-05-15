@@ -1,3 +1,4 @@
+// @ts-nocheck
 (() => {
 	// node_modules/query-selector-shadow-dom/src/normalize.js
 	function normalizeSelector(sel) {

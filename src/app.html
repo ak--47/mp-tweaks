@@ -84,7 +84,7 @@
 				class="section">
 				<h2 class="lower">Demo Sequences</h2>
 				<p class="small">click each button below for easy <b>one-click demo setup</b></p>
-				<div id="buttons">
+				<div class="buttons">
 				</div>
 				<p class="addMore"><a
 						href="https://docs.google.com/spreadsheets/d/1FSX3cNbBbTLh0piT7EQ3ceIO8coDAsNVA7O4hCEtoBk/edit#gid=0&range=A1"
@@ -92,13 +92,18 @@
 			</div>
 
 			<!-- DATA TOOLS -->
-			 <div id="dataTools" class="section">
+			<div id="dataTools"
+				class="section">
 				<h2 class="lower">Apps + Tools</h2>
 				<p class="small">some <b>useful tools</b> for <b>dummy data creation</b> and <b>asset management</b></p>
-				<div class="button-input-group" id="toolsWrapper">
+				<div class="buttons"
+					id="toolsWrapper">
 					<!-- injected on init -->
 				</div>
-			 </div>
+				<p class="addMore"><a
+						href="https://docs.google.com/spreadsheets/d/1lR2Bu3_RLkE16xnlpB2SQJFc0DOtRaTU_TdJOX3NVGY/edit?usp=sharing"
+						target="_blank">add a new tool</a></p>
+			</div>
 
 
 			<!-- SESSION REPLAY -->
@@ -130,7 +135,8 @@
 						class="statusText hide">connected org: <b>FOO</b></span></p>
 				<button class="button fa"
 					id="makeProject">MAKE PROJECT</button>
-				<button class="button fa" id="resetUser">REAUTH</button>
+				<button class="button fa"
+					id="resetUser">REAUTH</button>
 				<svg id="makeProjectSpinner"
 					class="hidden"
 					width="50px"
@@ -211,7 +217,7 @@
 				class="section">
 				<h2 class="lower">Feature Flags</h2>
 				<p class="small">inject <b>feature flags</b> into the <b>active tab</b></p>
-				<div id="buttons">
+				<div class="buttons">
 				</div>
 				<button class="button fa remove"
 					id="removeAll">UNFLAG</button>
@@ -279,7 +285,9 @@
 			<div id="footer">
 
 				<p>
-					<span>version <span id="versionLabel">{{version}}</span> made with &#129392; by <a href="https://github.com/ak--47/mp-tweaks" target="_blank">AK</a></span>
+					<span>version <span id="versionLabel">{{version}}</span> made with &#129392; by <a
+							href="https://github.com/ak--47/mp-tweaks"
+							target="_blank">AK</a></span>
 					<a class="byline"
 						href="https://forms.gle/sn4aYQAnMEihbwvs8"
 						target="_blank">request a feature</a>
@@ -290,10 +298,10 @@
 	</div>
 
 	<!-- SCRIPTS -->
-	<script src="./lib/saveFile.min.js"></script>
-	<script src="./lib/papaparse.min.js"></script>
+	<script src="./lib/saveFile.js"></script>
+	<script src="./lib/papaparse.js"></script>
 	<script src="./lib/mixpanel-wrapper.js"></script>
-	<script src="./lib/mixpanel.min.js"></script>
+	<script src="./lib/mixpanel-full.js"></script>
 	<script type="module"
 		src="./app.js"></script>
 </body>

@@ -3,19 +3,22 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.32`;
+const APP_VERSION = `2.34`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
+const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
 
 const APP = {
 	currentVersion: APP_VERSION,
 	dataSources: [
 		{ name: 'featureFlags', url: FEATURE_FLAG_URI },
-		{ name: 'demoLinks', url: DEMO_GROUPS_URI }
+		{ name: 'demoLinks', url: DEMO_GROUPS_URI },
+		{ name: 'tools', url: TOOLS_URI }
 	],
 	tools: {
 		"dm3": "https://dm3.mixpanel.org",
 		"dm lite": "https://dm3.mixpanel.org/lite",
+		"fixpanel": "https://ak--47.github.io/fixpanel/",
 		"power tools": "https://mixpanel-power-tools-gui-lmozz6xkha-uc.a.run.app/",
 		"replay sim": "https://npc-mixpanel-lmozz6xkha-uc.a.run.app/",
 		"bq perms": "https://us-central1-mixpanel-gtm-training.cloudfunctions.net/mp-bq-iam-demo"
@@ -28,8 +31,9 @@ const APP = {
 	getCheckbox,
 	setCheckbox,
 	fetchCSV,
-	buildButtons,
+	buildFlagButtons,
 	buildDemoButtons,
+	buildToolsButtons,
 	analytics,
 	saveJSON,
 	hideLoader,
@@ -53,16 +57,19 @@ const APP = {
 			const sources = this.dataSources;
 			Promise.all(sources.map(source => this.fetchCSV(source.url, source.name)))
 				.then((data) => {
-					const [flags, demoLinks] = data;
+					const [flags, demoLinks, tools] = data;
 					this.hideLoader();
 					flags.forEach((button) => {
-						this.buildButtons(button);
+						this.buildFlagButtons(button);
 					});
 					const demos = groupBy(demoLinks);
 					for (const demo in demos) {
 						const data = demos[demo];
 						this.buildDemoButtons(demo, data);
 					}
+					tools.forEach((button) => {
+						this.buildToolsButtons(button);
+					});
 
 
 				})
@@ -329,14 +336,14 @@ function cacheDOM() {
 
 	//demo builds
 	this.DOM.demoLinks = document.querySelector('#demoLinks');
-	this.DOM.demoLinksWrapper = document.querySelector('#demoLinks > #buttons');
+	this.DOM.demoLinksWrapper = document.querySelector('#demoLinks > .buttons');
 
 	//tools
-	this.DOM.tools = document.querySelector('#toolsWrapper');
+	this.DOM.toolsWrapper = document.querySelector('#toolsWrapper');
 
 	//feature flags
 	this.DOM.perTab = document.querySelector('#perTab');
-	this.DOM.buttonWrapper = document.querySelector('#perTab > #buttons');
+	this.DOM.buttonWrapper = document.querySelector('#perTab > .buttons');
 	this.DOM.removeAll = document.querySelector('#removeAll');
 
 	//persistent scripts	
@@ -443,21 +450,6 @@ function loadInterface() {
 		//version
 		this.DOM.versionLabel.textContent = `v${APP_VERSION}`;
 
-		//tool buttons
-		if (Object.keys(APP.tools)?.length > 0) {
-			for (const tool in APP.tools) {
-				const url = APP.tools[tool];
-				const newButton = document.createElement('BUTTON');
-				newButton.setAttribute('class', 'button fa');
-				newButton.setAttribute('id', tool);
-				newButton.appendChild(document.createTextNode(tool.toUpperCase()));
-				newButton.onclick = async () => {
-					track('tool button', { tool });
-					await openNewTab(url, true);
-				};
-				this.DOM.tools.appendChild(newButton);
-			}
-		}
 	}
 	catch (e) {
 		track('error: loadInterface', { error: e });
@@ -766,7 +758,7 @@ function bindListeners() {
 	}
 }
 
-function buildButtons(object) {
+function buildFlagButtons(object) {
 	let name = object.label;
 	let flag = object.flag;
 	let buttonId = object.label.replace(/\s/g, '');
@@ -780,6 +772,35 @@ function buildButtons(object) {
 	};
 	this.DOM.buttonWrapper.appendChild(newButton);
 }
+
+function buildToolsButtons(buttonData) {
+	//tool buttons
+	const { tool, url } = buttonData;
+	if (!tool) {
+		const err = new Error("missing tool in buttonData");
+		// @ts-ignore
+		err.data = buttonData;
+		throw err;
+	} if (!url) {
+		const err = new Error("missing url in buttonData");
+		// @ts-ignore
+		err.data = buttonData;
+		throw err;
+	}
+
+	const newButton = document.createElement('BUTTON');
+	newButton.setAttribute('class', 'button fa');
+	newButton.setAttribute('id', tool);
+	newButton.appendChild(document.createTextNode(tool.toUpperCase()));
+	newButton.onclick = async () => {
+		track('tool button', { tool });
+		await openNewTab(url, true);
+	};
+	this.DOM.toolsWrapper.appendChild(newButton);
+}
+
+
+
 
 function buildDemoButtons(demo, data) {
 	let newButton = document.createElement('BUTTON');
@@ -993,6 +1014,13 @@ function analytics() {
 				doNotTrack: '0'
 			}
 		},
+		record_sessions_percent: 100,
+		record_inline_images: true,
+		record_collect_fonts: true,
+		record_mask_text_selector: "nope",
+		record_block_selector: "nope",
+		record_block_class: "nope",
+		ignore_dnt: true,
 		loaded: function (mixpanel) {
 			const current_distinct_id = mixpanel.get_distinct_id();
 			if (!current_distinct_id.includes("@")) {
@@ -1027,15 +1055,15 @@ function analytics() {
 				}
 			}
 		},
-		inapp_protocol: 'https://',
 		secure_cookie: true
 	});
 }
 
 function track(event, data = {}) {
+	const blacklist = ['oauthToken'];
 	let props = {};
 	//serialize errors so they don't just become {};
-	for (const key in data) {
+	loopProps: for (const key in data) {
 		if (data[key] instanceof Error) {
 			props.error = {
 				message: data[key]?.message || "",
@@ -1045,6 +1073,10 @@ function track(event, data = {}) {
 				// line: data[key]?.lineNumber || ""
 			};
 		}
+		else if (blacklist.includes(key)) {
+			continue loopProps;
+		}
+
 		else {
 			props[key] = data[key];
 		}
