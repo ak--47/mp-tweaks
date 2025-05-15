@@ -1,9 +1,10 @@
+// @ts-nocheck
 // https://github.com/mixpanel/mixpanel-js/blob/master/dist/mixpanel-with-recorder.min.js
 
 if (!window.MIXPANEL_WAS_INJECTED) {
 	window.MIXPANEL_WAS_INJECTED = true;
 	console.log("mp-tweaks: injecting mixpanel snippet");
-	const MIXPANEL_CUSTOM_LIB_URL = chrome.runtime.getURL("/src/lib/mixpanel.min.js");
+	const MIXPANEL_CUSTOM_LIB_URL = chrome.runtime.getURL("/src/lib/mixpanel-full.js");
 		(function (f, b) {
 			if (!b.__SV) {
 				var e, g, i, h;

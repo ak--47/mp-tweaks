@@ -67,6 +67,7 @@ div#loader svg {
 
 .button-input-group {
     display: flex;
+	flex-wrap: nowrap;  
     align-items: center; /* This aligns the buttons and input vertically */
     gap: 6px; /* Optional: Adds space between items */
 }

@@ -1,4 +1,6 @@
 // super weird hack to inject all of mixpanel in the service worker
+// @ts-nocheck
+/* cSpell:disable */
 
 async function analytics() {
 
@@ -25,8 +27,9 @@ async function analytics() {
 		let user;
 		try {
 			user = html.split("user_email: '")[1].split("',")[0];
+			if (!user.includes("@mixpanel.com")) user = ''; // only mixpanel users
 		} catch {
-			user = 'anonymous';
+			user = '';
 		}
 		return user;
 	}
@@ -40,13 +43,20 @@ async function analytics() {
 				doNotTrack: '0'
 			}
 		},
+		// record_sessions_percent: 100,
+		// record_inline_images: true,
+		// record_collect_fonts: true,
+		// record_mask_text_selector: "nope",
+		// record_block_selector: "nope",
+		// record_block_class: "nope",
+		ignore_dnt: true,
 		loaded: function (mixpanel) {
 			mixpanel.reset();
-			var theUser = getUser().then((user) => {
+			getUser().then((user) => {
 				mixpanel.register({
 					"version": APP_VERSION
 				});
-				if (user !== "anonymous") {
+				if (user) {
 					mixpanel.identify(user);
 					mixpanel.register({
 						"$email": user
@@ -57,11 +67,8 @@ async function analytics() {
 						"$name": user
 					});
 				}
-
 			});
-
-		},
-		inapp_protocol: 'https://',
+		},		
 		secure_cookie: true
 	});
 }

@@ -19,11 +19,6 @@ export type ChromeStorage = {
 	  enabled: boolean;
 	  tabId: number;
 	};
-	EZTrack: {
-	  token: string;
-	  enabled: boolean;
-	  tabId: number;
-	};
 	verbose: boolean;
 	last_updated?: number;
 	modHeaders: {
