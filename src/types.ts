@@ -12,8 +12,8 @@ export type ChromeStorage = {
 	  oauthToken: string;
 	  orgName: string;
 	};
-	featureFlags: Object[];
-	demoLinks: Object[];
+	// featureFlags: Object[];
+	// demoLinks: Object[];
 	sessionReplay: {
 	  token: string;
 	  enabled: boolean;
@@ -24,6 +24,9 @@ export type ChromeStorage = {
 	modHeaders: {
 		headers: ModHeaders[]
 		enabled: boolean;
+	}
+	responseOverrides: {
+		[key: string]: Object
 	}	
   };
   

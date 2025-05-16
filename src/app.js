@@ -218,8 +218,9 @@ function listenForWorker() {
 
 		switch (message.action) {
 			case "caught-response":
-				const { data: response } = message;
-				APP.dataEditorHandleCatch(response);
+				const response = message?.data?.response;
+				const url = message?.data?.url;
+				APP.dataEditorHandleCatch(response, url);
 				break;
 			case "caught-request":
 				const { data: request } = message;
@@ -247,7 +248,7 @@ function listenForWorker() {
 				break;
 		}
 
-		return true; // Keep the message channel open for sendResponse
+		// return true; // Keep the message channel open for sendResponse
 	});
 }
 
@@ -264,7 +265,8 @@ function sendMessageAsync(payload) {
 	});
 }
 
-function dataEditorHandleCatch(data) {
+function dataEditorHandleCatch(data, url) {
+	this.DOM.lastChartLink.closest('p').classList.remove('hidden');
 	this.DOM.fetchChartData.classList.add('hidden');
 	this.DOM.buildChartPayload.classList.add('hidden');
 	this.DOM.postChartData.classList.remove('hidden');
@@ -274,13 +276,16 @@ function dataEditorHandleCatch(data) {
 	this.DOM.randomize.classList.remove('hidden');
 	this.DOM.saveChartData.classList.remove('hidden');
 	this.DOM.rawDataTextField.value = JSON.stringify(data, null, 2);
+	this.DOM.lastChartLink.textContent = url;
+	this.DOM.lastChartLink.href = url;
 }
 
 function queryBuilderHandleCatch(data) {
+	this.DOM.lastChartLink.closest('p').classList.add('hidden');
 	this.DOM.fetchChartData.classList.add('hidden');
 	this.DOM.buildChartPayload.classList.add('hidden');
 	this.DOM.postChartData.classList.add('hidden');
-	this.DOM.resetDataEditor.classList.remove('hidden');
+	this.DOM.resetDataEditor.classList.add('hidden');
 	this.DOM.rawDataWrapper.classList.remove('hidden');
 	this.DOM.rawDataTextField.classList.remove('hidden');
 	this.DOM.randomize.classList.add('hidden');
@@ -366,6 +371,7 @@ function cacheDOM() {
 	this.DOM.saveChartData = document.querySelector('#saveChartData');
 	this.DOM.contextError = document.querySelector('#contextError');
 	this.DOM.jsonError = document.querySelector('#badJSON');
+	this.DOM.lastChartLink = document.querySelector('#lastChartLink');
 
 	//project creator
 	this.DOM.makeProject = document.querySelector('#makeProject');
@@ -600,21 +606,41 @@ function bindListeners() {
 
 		//RESET DATA EDITOR
 		this.DOM.resetDataEditor.addEventListener('click', () => {
+			this.DOM.lastChartLink.closest('p').classList.add('hidden');
+			this.DOM.lastChartLink.textContent = "";
+			this.DOM.lastChartLink.href = "#";
 			this.DOM.fetchChartData.classList.remove('hidden');
 			this.DOM.buildChartPayload.classList.remove('hidden');
 			this.DOM.postChartData.classList.add('hidden');
-			this.DOM.resetDataEditor.classList.add('hidden');
+			this.DOM.resetDataEditor.classList.remove('hidden');
 			this.DOM.rawDataWrapper.classList.add('hidden');
 			this.DOM.randomize.classList.add('hidden');
 			this.DOM.contextError.classList.add('hidden');
 			this.DOM.jsonError.classList.add('hidden');
 			this.DOM.saveChartData.classList.add('hidden');
+
+			messageWorker('clear-responses')
+				.then(() => {
+					console.log('mp-tweaks: cleared responses');
+				})
+				.catch(error => {
+					console.error('mp-tweaks: error clearing responses', error);
+				});
+
 		});
 
 		//SAVE DATA
 		this.DOM.saveChartData.addEventListener('click', () => {
 			const chartData = JSON.parse(this.DOM.rawDataTextField.value);
-			this.saveJSON(chartData, `data-${chartData?.computed_at}` || "data");
+			const chartUrl = this.DOM.lastChartLink.href;
+			// this.saveJSON(chartData, `data-${chartData?.computed_at}` || "data");
+			messageWorker('save-response', { chartData, chartUrl })
+				.then(response => {
+					console.log('mp-tweaks: worker response saved', response);
+				})
+				.catch(error => {
+					console.error('mp-tweaks: worker response error', error);
+				});
 		});
 
 		//SESSION REPLAY
@@ -801,9 +827,6 @@ function buildToolsButtons(buttonData) {
 	this.DOM.toolsWrapper.appendChild(newButton);
 }
 
-
-
-
 function buildDemoButtons(demo, data) {
 	let newButton = document.createElement('BUTTON');
 	newButton.setAttribute('class', 'button fa');
@@ -845,7 +868,6 @@ function groupBy(objects, field = 'TITLE') {
 	}, {});
 }
 
-
 function addQueryParams(url, params) {
 	if (url.includes('distinct_id=') && params.user && url.includes('3276012')) {
 		return url.replace(/distinct_id=/, `distinct_id=${params.user}`);
@@ -873,8 +895,6 @@ function addQueryParams(url, params) {
 	// Reattach the hash if it exists
 	return hash ? `${updatedBaseUrl}#${hash}` : updatedBaseUrl;
 }
-
-
 
 function flipIntegers(obj) {
 	Object.keys(obj).forEach(key => {
@@ -982,7 +1002,6 @@ function addHeaderRow() {
 
 
 }
-
 
 function filterObj(hash, test_function, keysOrValues = "value") {
 	let key, i;
@@ -1092,7 +1111,6 @@ function track(event, data = {}) {
 	}
 }
 
-
 function saveJSON(chartData = {}, fileName = `no fileName`) {
 	if (typeof chartData !== 'string') {
 		chartData = JSON.stringify(chartData, null, 2);
@@ -1103,10 +1121,9 @@ function saveJSON(chartData = {}, fileName = `no fileName`) {
 		type: "text/plain;charset=utf-8"
 	});
 
-	saveFile(chartBlob, `${fileName}.json`);
+	saveAs(chartBlob, `${fileName}.json`);
 	console.log('saved!');
 }
-
 
 async function captureCurrentTabId() {
 	return new Promise((resolve, reject) => {

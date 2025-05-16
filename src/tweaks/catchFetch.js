@@ -27,7 +27,7 @@ function isAHit(url) {
 var unregister = fetchInterceptor.register({
 	response: async function (response) {
 		console.log('mp-tweaks: checking fetch response');
-		//intercept requests to report APIs
+		// these are for explicit "DRAW CHART" clicks
 		if (isAHit(response.url) && window.CATCH_FETCH_INTENT === 'response') {
 			console.log('mp-tweaks: hit!');
 			//clone the response
@@ -39,14 +39,26 @@ var unregister = fetchInterceptor.register({
 			}
 			else {
 				console.log('mp-tweaks: sent data to worker');
-				const catchFetchEvent = new CustomEvent("caught-response", { detail: data });
+				const catchFetchEvent = new CustomEvent("caught-response", { detail: { response: data, url: window.location.href } });
 				window.dispatchEvent(catchFetchEvent);
 				blob = makeABlob(JSON.stringify(data));
 			}
-
+			// window.CATCH_FETCH_INTENT = 'none';
 			stopIntercept();
 			return new Response(blob);
 		}
+		// this is for overrides! 
+		if (isAHit(response.url) && window.CATCH_FETCH_INTENT === 'override') {			
+			const override = window.ALTERED_MIXPANEL_OVERRIDE || null;			
+			if (override) {
+				console.log(`mp-tweaks: got override for ${window.location.href}`);
+				const blob = makeABlob(JSON.stringify(override));
+				stopIntercept();
+				return new Response(blob);
+			}
+		}
+
+
 		//don't do anything for requests that aren't to /insights, etc..
 		else {
 			return response;
@@ -75,30 +87,18 @@ var unregister = fetchInterceptor.register({
 //trigger two clicks
 
 //for the three dots; diff for each report
-var threeDotsDiv = [];
-threeDotsDiv.push(querySelectorShadowDom.querySelectorAllDeep('mp-select div.select-trigger mp-button[icon="hor-ellipsis"] a').pop());
+if (window.CATCH_FETCH_INTENT === 'response' || window.CATCH_FETCH_INTENT === 'request') {
+var threeDotsDiv = querySelectorShadowDom.querySelectorAllDeep('div > div.mp-control-bar-truncated-menu-container > mp-select div > div > mp-button a > div.mp-button-content > svg-icon').shift();
 
-
-//click the three dots!
-try {
-	if (threeDotsDiv.length > 0) {
-		threeDotsDiv[0].click();
-	}
-}
-
-catch (e) {
-
-}
-
-var refreshDataButton = [];
+threeDotsDiv.click();
 
 setTimeout(() => {
-	refreshDataButton.push(querySelectorShadowDom.querySelectorAllDeep('li[elref="reportRefreshButton"]').pop());
-	refreshDataButton.push(querySelectorShadowDom.querySelectorAllDeep('mp-button.correlate-button div.content').pop());
-	refreshDataButton.push(querySelectorShadowDom.querySelectorAllDeep('mp-button.refresh a[elref="buttonContainer"] div.mp-button-content').pop());
-	//then click refresh data!
-	Array.from(refreshDataButton).filter(a => a)[0].click();
-}, 200);
+	var refreshDataButton = querySelectorShadowDom.querySelectorAllDeep("div > div.mp-control-bar-truncated-menu-container > mp-select div > div.select-drop-menu__A0YRHQY9 > mp-drop-menu > mp-items-menu div > div > div:nth-child(5) > ul > div > li > div.option-label-section > div > div > span").shift();
+	refreshDataButton.click();
+}, 250);
+}
+
+
 
 //kill the interceptor
 function stopIntercept() {

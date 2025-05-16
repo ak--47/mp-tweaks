@@ -24,9 +24,10 @@ const STORAGE_MODEL = {
 	verbose: true,
 	modHeaders: { headers: [], enabled: false },
 	last_updated: Date.now(),
+	responseOverrides: {},
 	//these can be cached;
-	featureFlags: [],
-	demoLinks: []
+	// featureFlags: [],
+	// demoLinks: []
 
 };
 
@@ -115,6 +116,16 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 						}
 					}
 				}
+			}
+
+			// report overrides
+			const overrides = STORAGE?.responseOverrides || {};
+			const override = overrides[tab.url];
+			if (override) {
+				console.log('mp-tweaks: injecting overrides', override);
+				runScript(injectOverride, [override], { world: 'MAIN' }, tab);
+				const catchFetchUri = chrome.runtime.getURL('/src/tweaks/catchFetch.js');
+				runScript(catchFetchWrapper, [{ target: 'override' }, catchFetchUri], { world: 'MAIN' }, tab);
 			}
 		}
 
@@ -213,6 +224,22 @@ async function handleRequest(request) {
 			result = (await init())?.whoami;
 			break;
 
+		case 'save-response':
+			const { chartData, chartUrl } = request.data;
+			STORAGE.responseOverrides[chartUrl] = chartData;
+			await setStorage(STORAGE);
+			result = STORAGE.responseOverrides;
+			await updateIconToBeActive(true)
+			break;
+
+		case 'clear-responses':
+			STORAGE.responseOverrides = {};
+			await setStorage(STORAGE);
+			result = STORAGE.responseOverrides;
+			await updateIconToBeActive(false)
+			await runScript(reload);
+			break;
+
 		case 'catch-fetch':
 			const [scriptOutput] = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
 			const { target, data } = scriptOutput.result;
@@ -237,7 +264,7 @@ async function handleRequest(request) {
 			// var { token, tabId } = STORAGE.sessionReplay;
 			// if (token && tabId) result = await startSessionReplay(token, tabId);
 			await runScript(reload);
-			await updateIconBasedOnHeaders(STORAGE.sessionReplay.enabled);
+			await updateIconToBeActive(STORAGE.sessionReplay.enabled);
 			break;
 
 		case 'stop-replay':
@@ -246,7 +273,7 @@ async function handleRequest(request) {
 			result = false;
 			await setStorage(STORAGE);
 			await runScript(reload);
-			await updateIconBasedOnHeaders(STORAGE.sessionReplay.enabled);
+			await updateIconToBeActive(STORAGE.sessionReplay.enabled);
 			break;
 
 		//update headers and call updateHeaders
@@ -255,7 +282,7 @@ async function handleRequest(request) {
 			STORAGE.modHeaders.headers = headers;
 			if (headers.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
 			else STORAGE.modHeaders.enabled = false;
-			await updateIconBasedOnHeaders(STORAGE.modHeaders.enabled);
+			await updateIconToBeActive(STORAGE.modHeaders.enabled);
 			await setStorage(STORAGE);
 			result = await updateHeaders(headers);
 			break;
@@ -277,7 +304,7 @@ async function handleRequest(request) {
 		case 'reset-headers':
 			STORAGE.modHeaders.headers = [];
 			STORAGE.modHeaders.enabled = false;
-			await updateIconBasedOnHeaders(STORAGE.modHeaders.enabled);
+			await updateIconToBeActive(STORAGE.modHeaders.enabled);
 			await setStorage(STORAGE);
 			result = await removeHeaders();
 			await runScript(reload);
@@ -472,7 +499,7 @@ async function resetCSP() {
 /**
  * @param  {boolean} enabled
  */
-async function updateIconBasedOnHeaders(enabled) {
+async function updateIconToBeActive(enabled) {
 	if (typeof enabled !== 'boolean') throw new Error(`update icon expected boolean, got ${typeof enabled}`);
 	let iconPath = enabled ? "/icons/iconActive.png" : "icons/icon128.png";
 	iconPath = chrome.runtime.getURL(iconPath);
@@ -702,6 +729,12 @@ function catchFetchWrapper(data, url) {
 	});
 
 }
+
+function injectOverride(mockData) {
+	window.ALTERED_MIXPANEL_OVERRIDE = mockData || {};
+	console.log('mp-tweaks: overrides injected:', window.ALTERED_MIXPANEL_OVERRIDE);
+}
+
 
 function echo(data, key) {
 	console.log(`mp-tweaks: echoing data at key ${key}...`, data);
@@ -942,7 +975,7 @@ async function getCurrentTab() {
 
 async function getStorage(keys = null, retries = 3, delay = 1000) {
 	const attempt = (resolve, reject, remainingRetries) => {
-		chrome.storage.sync.get(keys, (result) => {
+		chrome.storage.local.get(keys, (result) => {
 			if (chrome.runtime.lastError) {
 				if (remainingRetries > 0) {
 					setTimeout(() => attempt(resolve, reject, remainingRetries - 1), delay);
@@ -962,7 +995,7 @@ async function getStorage(keys = null, retries = 3, delay = 1000) {
 async function setStorage(data) {
 	data.last_updated = Date.now();
 	return new Promise((resolve, reject) => {
-		chrome.storage.sync.set(data, () => {
+		chrome.storage.local.set(data, () => {
 			if (chrome.runtime.lastError) {
 				reject(new Error(chrome.runtime.lastError));
 			} else {
@@ -975,7 +1008,7 @@ async function setStorage(data) {
 
 async function clearStorageData() {
 	return new Promise((resolve, reject) => {
-		chrome.storage.sync.clear(() => {
+		chrome.storage.local.clear(() => {
 			if (chrome.runtime.lastError) {
 				reject(new Error(chrome.runtime.lastError.message));
 			} else {
@@ -1021,6 +1054,7 @@ async function getUser() {
 		}
 	}
 	catch (err) {
+		// @ts-ignore
 		if (err?.message?.includes('JSON')) {
 			console.log('mp-tweaks: user is not logged in');
 		}
