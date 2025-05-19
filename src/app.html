@@ -125,6 +125,42 @@
 				</div>
 			</div>
 
+						<!-- CHART EDITOR -->
+			<div id="dataEditor"
+				class="section">
+				<h2>Chart Editor / API Query Builder</h2>
+				<p class="small"><b>change the data</b> for a chart in the <b>active tab</b><br />
+					or <b>construct an query API payload</b> for the chart in the <b>active tab</b></p>
+				<div class="controls">
+					<button class="button fa"
+						id="fetchChartData">FETCH CHART DATA</button>
+					<button class="button fa"
+						id="buildChartPayload">CONSTRUCT API QUERY</button>
+					<button class="button fa hidden"
+						id="postChartData">REDRAW CHART</button>
+					<button class="button fa hidden"
+						id="randomize">RANDOMIZE</button>
+					<button class="button fa hidden"
+						id="saveChartData">SAVE</button>
+					<button class="button fa"
+						id="resetDataEditor">RESET</button>
+					<p class="hidden" id="queryMetadata">
+						<span>metadata</span>
+						<a href="#" target="_top" class="hidden" id="apiUrl">api_url</a>
+						<a href="#" target="_top" id="uiUrl">ui_url</a>
+						<a href="#" target="_top" id="apiPayload">payload</a>
+					</p>
+					<p class="error hidden"
+						id="contextError">extension context invalidated; please refresh the page and try again</p>
+					<p class="error hidden"
+						id="badJSON">your JSON is not valid; make it valid and try again</p>
+					<div id="rawDataWrapper"
+						class="hidden">
+						<textarea id="rawData"></textarea>
+					</div>
+				</div>
+			</div>
+
 
 			<!-- CREATE PROJECTS -->
 			<div id="createProject"
@@ -178,37 +214,6 @@
 			</div>
 
 
-			<!-- CHART EDITOR -->
-			<div id="dataEditor"
-				class="section">
-				<h2>Chart Editor / API Query Builder</h2>
-				<p class="small"><b>change the data</b> for a chart in the <b>active tab</b><br />
-					or <b>construct an query API payload</b> for the chart in the <b>active tab</b></p>
-				<div class="controls">
-					<button class="button fa"
-						id="fetchChartData">FETCH CHART DATA</button>
-					<button class="button fa"
-						id="buildChartPayload">CONSTRUCT API QUERY</button>
-					<button class="button fa hidden"
-						id="postChartData">REDRAW CHART</button>
-					<button class="button fa hidden"
-						id="randomize">RANDOMIZE</button>
-					<button class="button fa hidden"
-						id="saveChartData">SAVE</button>
-					<button class="button fa"
-						id="resetDataEditor">RESET</button>
-					<p class="hidden" id="lastChartLinkWrapper"><a href="#" target="_top" id="lastChartLink">last used report</a></p>
-					<p class="error hidden"
-						id="contextError">extension context invalidated; please refresh the page and try again</p>
-					<p class="error hidden"
-						id="badJSON">your JSON is not valid; make it valid and try again</p>
-					<div id="rawDataWrapper"
-						class="hidden">
-						<textarea id="rawData"></textarea>
-					</div>
-				</div>
-			</div>
-
 
 			<!-- FEATURE FLAGS -->
 			<div id="perTab"
@@ -240,6 +245,14 @@
 									name='check-1'
 									id="hideBanners">
 								</input>hide banners + outage notifs</label>
+						</div>
+
+						<div class="option">
+							<label><input class='toggle'
+									type="checkbox"
+									name='check-1'
+									id="hideBetas">
+								</input>hide beta + alpha labels</label>
 						</div>
 
 						<div class="option">

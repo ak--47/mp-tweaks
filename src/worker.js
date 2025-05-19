@@ -5,13 +5,14 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.34`;
+const APP_VERSION = `2.35`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
 	"featureFlag": { path: "./src/tweaks/featureFlag.js", code: "" },
 	"hideBanners": { path: "./src/tweaks/hideBanners.js", code: "" },
-	"renameTabs": { path: "./src/tweaks/renameTabs.js", code: "" }
+	"renameTabs": { path: "./src/tweaks/renameTabs.js", code: "" },
+	"hideBetas": { path: "./src/tweaks/hideBetas.js", code: "" },
 };
 
 /** @type {PersistentStorage} */
@@ -194,14 +195,17 @@ async function handleRequest(request) {
 	track('worker start', { action: request.action, data: request.data, reqId });
 	switch (request.action) {
 		case 'refresh-storage':
+			console.log('mp-tweaks: refreshing storage');
 			result = await refreshStorageData();
 			break;
 
 		case 'add-flag':
+			console.log('mp-tweaks: adding flag', request.data.flag);
 			result = await runScript(addFlag, [request.data.flag]);
 			break;
 
 		case 'remove-flags':
+			console.log('mp-tweaks: removing flags');
 			result = await runScript(removeFlags);
 			break;
 
@@ -210,6 +214,7 @@ async function handleRequest(request) {
 			break;
 
 		case 'make-project':
+			console.log('mp-tweaks: creating new project');
 			result = await makeProject();
 			if (result) {
 				const { url = "" } = result;
@@ -220,40 +225,58 @@ async function handleRequest(request) {
 			break;
 
 		case 'reset-user':
+			console.log('mp-tweaks: resetting user');
 			await resetStorageData();
 			result = (await init())?.whoami;
 			break;
-
+		
 		case 'save-response':
-			const { chartData, chartUrl } = request.data;
-			STORAGE.responseOverrides[chartUrl] = chartData;
+			console.log('mp-tweaks: saving API response');
+			const { chartData,
+				chartUiUrl,
+				chartApiUrl,
+				chartParams } = request.data;			
+			const hash = await hashJSON(chartParams);
+			//todo: maybe do this with project/workspace_id so we only inject overrides if pid matches?
+			STORAGE.responseOverrides[hash] = request.data;
 			await setStorage(STORAGE);
 			result = STORAGE.responseOverrides;
-			await updateIconToBeActive(true)
+			await updateIconToBeActive(true);
 			break;
 
 		case 'clear-responses':
+			console.log('mp-tweaks: clearing API responses');
 			STORAGE.responseOverrides = {};
 			await setStorage(STORAGE);
 			result = STORAGE.responseOverrides;
-			await updateIconToBeActive(false)
+			await updateIconToBeActive(false);
 			await runScript(reload);
 			break;
 
 		case 'catch-fetch':
-			const [scriptOutput] = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
-			const { target, data } = scriptOutput.result;
-			if (target === 'response') await messageExtension('caught-response', data);
-			if (target === 'request') await messageExtension('caught-request', data);
-			result = data;
+			console.log('mp-tweaks: catching fetch');
+			try {
+				const [scriptOutput] = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
+				const { target, data } = scriptOutput.result;
+				if (target === 'response') await messageExtension('caught-response', data);
+				if (target === 'request') await messageExtension('caught-request', data);
+				result = data;
+			}
+			catch (e) {
+				console.error('mp-tweaks: error catching fetch', e);
+				track('catch fetch error', { request, error: e });
+				result = {};
+			}
 			break;
 
 		case 'draw-chart':
+			console.log('mp-tweaks: drawing chart data');
 			await runScript(echo, [request.data, "ALTERED_MIXPANEL_DATA"]);
 			result = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
 			break;
 
 		case 'start-replay':
+			console.log('mp-tweaks: starting session replay');
 			await relaxCSP();
 			STORAGE.sessionReplay.enabled = true;
 			if (request?.data?.token && request?.data?.tabId) {
@@ -268,6 +291,7 @@ async function handleRequest(request) {
 			break;
 
 		case 'stop-replay':
+			console.log('mp-tweaks: stopping session replay');
 			await resetCSP();
 			STORAGE.sessionReplay.enabled = false;
 			result = false;
@@ -278,6 +302,7 @@ async function handleRequest(request) {
 
 		//update headers and call updateHeaders
 		case 'mod-headers':
+			console.log('mp-tweaks: updating headers');
 			const headers = request.data.headers;
 			STORAGE.modHeaders.headers = headers;
 			if (headers.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
@@ -289,6 +314,7 @@ async function handleRequest(request) {
 
 		//update state of UI component but don't call updateHeaders
 		case 'store-headers':
+			console.log('mp-tweaks: storing headers');
 			const newHeaders = request.data.headers;
 			if (areEqual(newHeaders, STORAGE.modHeaders.headers)) {
 				console.log('mp-tweaks: headers unchanged');
@@ -302,6 +328,7 @@ async function handleRequest(request) {
 			break;
 
 		case 'reset-headers':
+			console.log('mp-tweaks: resetting headers');
 			STORAGE.modHeaders.headers = [];
 			STORAGE.modHeaders.enabled = false;
 			await updateIconToBeActive(STORAGE.modHeaders.enabled);
@@ -311,20 +338,23 @@ async function handleRequest(request) {
 			break;
 
 		case 'embed-sdk':
-			debugger;
+			console.log('mp-tweaks: embedding mixpanel SDK');
 			await injectMixpanelSDK(request?.data?.tab?.id || undefined);
 			break;
 
 		case 'nuke-cookies':
+			console.log('mp-tweaks: nuking cookies');
 			result = await nukeCookies();
 			break;
 
 		case 'reload':
+			console.log('mp-tweaks: reloading page');
 			await runScript(reload);
 			result = true;
 			break;
 
 		case 'open-tab':
+			console.log('mp-tweaks: opening new tab');
 			result = await openNewTab(request.data.url, true);
 			if (result.id && request.data) {
 				await runScript(injectToolTip, [request.data], { world: 'MAIN' }, result);
@@ -860,6 +890,16 @@ HELPERS
 ----
 */
 
+
+async function hashJSON(json) {
+	const jsonString = JSON.stringify(json);
+	const encoder = new TextEncoder();
+	const data = encoder.encode(jsonString);
+	const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+	const hashArray = Array.from(new Uint8Array(hashBuffer));
+	const hashHex = hashArray.map(byte => byte.toString(16).padStart(2, '0')).join('');
+	return hashHex;
+}
 
 function genName() {
 	var adjs = [

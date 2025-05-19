@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.34`;
+const APP_VERSION = `2.35`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
@@ -180,7 +180,7 @@ async function messageWorker(action, data) {
 
 async function getStorage(keys = null) {
 	return new Promise((resolve, reject) => {
-		chrome.storage.sync.get(keys, (result) => {
+		chrome.storage.local.get(keys, (result) => {
 			if (chrome.runtime.lastError) {
 				if (STORAGE) resolve(STORAGE); //return the cached storage
 				track('error: getStorage (cache miss)', { error: chrome.runtime.lastError });
@@ -197,7 +197,7 @@ async function getStorage(keys = null) {
 async function setStorage(data) {
 	data.last_updated = Date.now();
 	return new Promise((resolve, reject) => {
-		chrome.storage.sync.set(data, () => {
+		chrome.storage.local.set(data, () => {
 			if (chrome.runtime.lastError) {
 				track('error: setStorage', { error: chrome.runtime.lastError });
 				reject(new Error(chrome.runtime.lastError));
@@ -218,12 +218,12 @@ function listenForWorker() {
 
 		switch (message.action) {
 			case "caught-response":
-				const response = message?.data?.response;
-				const url = message?.data?.url;
-				APP.dataEditorHandleCatch(response, url);
+				var { api_url, request, response, ui_url } = message.data;
+				APP.dataEditorHandleCatch(api_url, ui_url, request, response);
 				break;
 			case "caught-request":
-				const { data: request } = message;
+				var { api_url, request } = message.data;
+				//todo:
 				APP.queryBuilderHandleCatch(request);
 				break;
 			case "refresh-storage":
@@ -265,19 +265,35 @@ function sendMessageAsync(payload) {
 	});
 }
 
-function dataEditorHandleCatch(data, url) {
-	this.DOM.lastChartLink.closest('p').classList.remove('hidden');
-	this.DOM.fetchChartData.classList.add('hidden');
-	this.DOM.buildChartPayload.classList.add('hidden');
+function dataEditorHandleCatch(api_url, ui_url, request, response) {
+	this.DOM.queryMetadata.classList.remove('hidden');
 	this.DOM.postChartData.classList.remove('hidden');
 	this.DOM.resetDataEditor.classList.remove('hidden');
 	this.DOM.rawDataWrapper.classList.remove('hidden');
 	this.DOM.rawDataTextField.classList.remove('hidden');
 	this.DOM.randomize.classList.remove('hidden');
 	this.DOM.saveChartData.classList.remove('hidden');
-	this.DOM.rawDataTextField.value = JSON.stringify(data, null, 2);
-	this.DOM.lastChartLink.textContent = url;
-	this.DOM.lastChartLink.href = url;
+
+	this.DOM.fetchChartData.classList.add('hidden');
+	this.DOM.buildChartPayload.classList.add('hidden');
+
+	this.DOM.rawDataTextField.value = JSON.stringify(response, null, 2);
+	this.DOM.apiUrl.textContent = api_url;
+	this.DOM.apiUrl.href = api_url;
+	this.DOM.uiUrl.textContent = ui_url;
+	this.DOM.uiUrl.href = ui_url;
+	const apiParams = extractBookmark(request);
+	const pretty = JSON.stringify(apiParams, null, 2);
+	this.DOM.apiPayload.setAttribute('data', JSON.stringify(apiParams));
+	this.DOM.apiPayload.title = pretty;
+	this.DOM.apiPayload.textContent = `{...}`;
+
+}
+
+function extractBookmark(request) {
+	const { bookmark = {} } = request;
+	const payload = { bookmark };
+	return payload;
 }
 
 function queryBuilderHandleCatch(data) {
@@ -357,6 +373,7 @@ function cacheDOM() {
 	this.DOM.toggles = document.querySelectorAll('.toggle');
 	this.DOM.persistentOptions = document.querySelector('#persistentOptions');
 	this.DOM.hideBanners = document.querySelector('#hideBanners');
+	this.DOM.hideBetas = document.querySelector('#hideBetas');
 	this.DOM.renameTabs = document.querySelector('#renameTabs');
 	this.DOM.hundredX = document.querySelector('#hundredX');
 
@@ -371,7 +388,10 @@ function cacheDOM() {
 	this.DOM.saveChartData = document.querySelector('#saveChartData');
 	this.DOM.contextError = document.querySelector('#contextError');
 	this.DOM.jsonError = document.querySelector('#badJSON');
-	this.DOM.lastChartLink = document.querySelector('#lastChartLink');
+	this.DOM.queryMetadata = document.querySelector('#queryMetadata');
+	this.DOM.apiUrl = document.querySelector('#apiUrl');
+	this.DOM.uiUrl = document.querySelector('#uiUrl');
+	this.DOM.apiPayload = document.querySelector('#apiPayload');
 
 	//project creator
 	this.DOM.makeProject = document.querySelector('#makeProject');
@@ -573,6 +593,23 @@ function bindListeners() {
 
 		});
 
+		this.DOM.apiPayload.addEventListener('click', (e) => {
+			e.preventDefault(); // prevent jump-to-top behavior
+			const json = this.DOM.apiPayload.getAttribute('data'); // stored as attribute
+			if (!json) return;
+			try {
+				const prettyJSON = JSON.stringify(JSON.parse(json), null, 2);
+				navigator.clipboard.writeText(prettyJSON).then(() => {
+					console.log("mp-tweaks: payload copied to clipboard!");
+					this.DOM.apiPayload.textContent = "Copied!";
+					setTimeout(() => (this.DOM.apiPayload.textContent = `{...}`), 500);
+				});
+			} catch (err) {
+				console.error("mp-tweaks: Failed to copy payload", err);
+			}
+		});
+
+
 		//DRAW CHART DATA
 		this.DOM.postChartData.addEventListener('click', () => {
 			//validate we have JSON
@@ -606,18 +643,19 @@ function bindListeners() {
 
 		//RESET DATA EDITOR
 		this.DOM.resetDataEditor.addEventListener('click', () => {
-			this.DOM.lastChartLink.closest('p').classList.add('hidden');
-			this.DOM.lastChartLink.textContent = "";
-			this.DOM.lastChartLink.href = "#";
-			this.DOM.fetchChartData.classList.remove('hidden');
-			this.DOM.buildChartPayload.classList.remove('hidden');
 			this.DOM.postChartData.classList.add('hidden');
-			this.DOM.resetDataEditor.classList.remove('hidden');
 			this.DOM.rawDataWrapper.classList.add('hidden');
 			this.DOM.randomize.classList.add('hidden');
 			this.DOM.contextError.classList.add('hidden');
 			this.DOM.jsonError.classList.add('hidden');
 			this.DOM.saveChartData.classList.add('hidden');
+			this.DOM.queryMetadata.classList.add('hidden');
+
+			this.DOM.fetchChartData.classList.remove('hidden');
+			this.DOM.buildChartPayload.classList.remove('hidden');		
+			this.DOM.resetDataEditor.classList.remove('hidden');
+			
+			
 
 			messageWorker('clear-responses')
 				.then(() => {
@@ -631,10 +669,13 @@ function bindListeners() {
 
 		//SAVE DATA
 		this.DOM.saveChartData.addEventListener('click', () => {
-			const chartData = JSON.parse(this.DOM.rawDataTextField.value);
-			const chartUrl = this.DOM.lastChartLink.href;
-			// this.saveJSON(chartData, `data-${chartData?.computed_at}` || "data");
-			messageWorker('save-response', { chartData, chartUrl })
+			const data = {
+				chartData: JSON.parse(this.DOM.rawDataTextField.value),
+				chartUiUrl: this.DOM.uiUrl.textContent,
+				chartApiUrl: this.DOM.apiUrl.textContent,
+				chartParams: JSON.parse(this.DOM.apiPayload.getAttribute('data')),
+			}			
+			messageWorker('save-response', { ...data })
 				.then(response => {
 					console.log('mp-tweaks: worker response saved', response);
 				})
@@ -1069,10 +1110,14 @@ function analytics() {
 			}));
 
 			for (const node of analyticsManifest) {
-				if (node.value.tagName === 'BUTTON') {
-					node.value.addEventListener('click', () => {
-						mixpanel.track(node.key);
-					});
+				if (node?.value) {
+					if (node?.value?.tagName) {
+						if (node.value.tagName === 'BUTTON') {
+							node.value.addEventListener('click', () => {
+								mixpanel.track(node.key);
+							});
+						}
+					}
 				}
 			}
 		},

@@ -40,4 +40,4 @@ type ModHeaders = AdditionalHeaders & {
     enabled: boolean;
 }
 
-type Hacks = '100x' | 'hideBanners' | 'renameTabs'
+type Hacks = '100x' | 'hideBanners' | 'renameTabs' | 'hideBetas'

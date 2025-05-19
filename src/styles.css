@@ -61,8 +61,8 @@ div#loader svg {
 
 #lastChartWrapper {
   font-size: 10%;
-    margin-left: 14px;
-    margin-top: 5px;
+  margin-left: 14px;
+  margin-top: 5px;
 }
 
 #apiResWrapper {
@@ -185,6 +185,13 @@ button {
 #footer .toggles p {
   margin-bottom: 0px;
   margin-top: 5px;
+}
+
+#queryMetadata {
+  display: flex;
+  gap: 1em; /* even spacing between items */
+  align-items: center; /* vertical alignment */
+  font-family: "Courier New", Courier, monospace;
 }
 
 a {

@@ -5,8 +5,7 @@ function caution() {
 	var link = document.createElement('link');
 	link.rel = 'icon';
 	link.href = `data:image/svg+xml;base64,${cautionEmoji}`;
-	document.getElementsByTagName('head')[0].appendChild(link);
-	// document.title = "!!! EZ-TRACKED !!!"													
+	document.getElementsByTagName('head')[0].appendChild(link);													
 }
 setTimeout(caution, 500);
 setTimeout(caution, 1000);
