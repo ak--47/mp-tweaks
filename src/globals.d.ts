@@ -1,6 +1,6 @@
 declare var chrome: any;
 declare var ALTERED_MIXPANEL_DATA: any;
-declare var ALTERED_MIXPANEL_OVERRIDE: any;
+declare var ALTERED_MIXPANEL_OVERRIDES: any;
 declare var mixpanel: any;
 declare var Papa: any;
 declare var saveAs: any;

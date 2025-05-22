@@ -125,7 +125,7 @@
 				</div>
 			</div>
 
-						<!-- CHART EDITOR -->
+			<!-- CHART EDITOR -->
 			<div id="dataEditor"
 				class="section">
 				<h2>Chart Editor / API Query Builder</h2>
@@ -144,11 +144,23 @@
 						id="saveChartData">SAVE</button>
 					<button class="button fa"
 						id="resetDataEditor">RESET</button>
-					<p class="hidden" id="queryMetadata">
+					<p class="hidden"
+						id="queryMetadata">
 						<span>metadata</span>
-						<a href="#" target="_top" class="hidden" id="apiUrl">api_url</a>
-						<a href="#" target="_top" id="uiUrl">ui_url</a>
-						<a href="#" target="_top" id="apiPayload">payload</a>
+						<a href="#"
+							target="_top"
+							class="hidden"
+							id="apiUrl">api_url</a>
+						<a href="#"
+							target="_top"
+							id="uiUrl">ui_url</a>
+						<a href="#"
+							target="_top"
+							id="apiPayload">payload</a>
+						<a href="#"
+							target="_top"
+							class="hidden"
+							id="origResponse">original response</a>
 					</p>
 					<p class="error hidden"
 						id="contextError">extension context invalidated; please refresh the page and try again</p>
@@ -158,6 +170,13 @@
 						class="hidden">
 						<textarea id="rawData"></textarea>
 					</div>
+					<div id="chartOverrides"
+						class="section">
+						<h2 class="lower">Saved Chart Overrides</h2>
+						<p class="small">click a saved override to view its data</p>
+						<div id="overrideList"></div>
+					</div>
+
 				</div>
 			</div>
 

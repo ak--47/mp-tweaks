@@ -59,10 +59,17 @@ div#loader svg {
   width: 239px;
 }
 
-#lastChartWrapper {
-  font-size: 10%;
-  margin-left: 14px;
-  margin-top: 5px;
+.overrideRow {
+  margin: 0.5em 0;
+}
+
+.overrideRow button {
+  font-family: monospace;
+}
+
+.projectOverride h4 {
+  margin-bottom: 0.25em;
+  font-weight: normal;
 }
 
 #apiResWrapper {

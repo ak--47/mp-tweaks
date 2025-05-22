@@ -17,7 +17,7 @@ function makeABlob(data) {
 }
 
 function isAHit(url) {
-	var validReports = ['/insights', '/arb_funnels', '/retention', '/impact', '/adoption', '/propensity', '/correlate', '/experiments'];
+	var validReports = ['/insights', '/arb_funnels', '/retention', '/impact', '/adoption', '/propensity', '/correlate', '/experiments', "/metrics"];
 	var blacklist = ['confidence'];
 	try {
 		//check if the url is a valid report and not a blacklisted one
@@ -61,26 +61,40 @@ var unregister = fetchInterceptor.register({
 		}
 
 		// ! this powers 'stored overrides'
-		// todo: search by params
 		if (isAHit(response.url) && window.CATCH_FETCH_INTENT === 'override') {
-			const override = window.ALTERED_MIXPANEL_OVERRIDE || null;
-			if (override) {
-				console.log(`mp-tweaks: got override for ${window.location.href}`);
-				const blob = makeABlob(JSON.stringify(override));
-				stopIntercept();
-				return new Response(blob);
+			const overrides = window.ALTERED_MIXPANEL_OVERRIDES || [];
+			if (overrides.length) {
+				for (const override of overrides) {
+					var chartOrigData = JSON.parse(JSON.stringify(override.chartOrigData));
+					var current_response = await response.clone().json();
+					//computed @ and date range values mess up the equality check
+					delete chartOrigData['computed_at'];
+					delete current_response['computed_at'];
+					delete chartOrigData['date_range'];
+					delete current_response['date_range'];
+
+					const similarity = fuzzySimilarity(current_response, chartOrigData);
+
+					if (similarity > 0.75) {
+						console.log('mp-tweaks: found an override');
+						const blob = makeABlob(JSON.stringify(override.chartData));
+						stopIntercept();
+						return new Response(blob);
+					}
+
+				}
+				console.log('mp-tweaks: no override found');
 			}
 		}
 
 		// most of the time do nothing
-		else {
-			return response;
-		}
+		return response;
+
 	},
 
 	request: function (url, config) {
 		console.log('mp-tweaks: checking fetch request');
-		if (isAHit(url) && (window.CATCH_FETCH_INTENT === 'request' || window.CATCH_FETCH_INTENT === 'response')) {
+		if (isAHit(url) && (window.CATCH_FETCH_INTENT === 'request' || window.CATCH_FETCH_INTENT === 'response' || window.CATCH_FETCH_INTENT === 'override')) {
 			console.log('mp-tweaks: hit!');
 			tempStorage.api_url = url;
 			tempStorage.ui_url = window.location.pathname;
@@ -131,6 +145,297 @@ function stopIntercept() {
 		console.log('mp-tweaks: unregistered interceptor');
 		MIXPANEL_CATCH_FETCH_ACTIVE = false;
 	}, 0);
+}
+
+
+function stableStringify(obj) {
+	return JSON.stringify(obj, replacer, 2); // pretty-print with spacing
+}
+
+function replacer(key, value) {
+	if (value && typeof value === 'object' && !Array.isArray(value)) {
+		return Object.keys(value)
+			.sort()
+			.reduce((acc, k) => {
+				acc[k] = value[k];
+				return acc;
+			}, {});
+	}
+	return value;
+}
+
+function haveSameShape(obj1, obj2) {
+	// Check if both arguments are objects
+	if (typeof obj1 !== 'object' || typeof obj2 !== 'object' || obj1 === null || obj2 === null) {
+		return false;
+	}
+
+	const keys1 = Object.keys(obj1);
+	const keys2 = Object.keys(obj2);
+
+	// Check if both objects have the same number of keys
+	if (keys1.length !== keys2.length) {
+		return false;
+	}
+
+	// Check if all keys in obj1 are in obj2 and have the same shape
+	for (let key of keys1) {
+		if (!keys2.includes(key)) {
+			return false;
+		}
+		if (typeof obj1[key] === 'object' && typeof obj2[key] === 'object') {
+			if (!haveSameShape(obj1[key], obj2[key])) {
+				return false;
+			}
+		} else if (typeof obj1[key] !== typeof obj2[key]) {
+			// Check if the types of values are different
+			return false;
+		}
+	}
+
+	return true;
+}
+
+// turn objects into strings and compare; this isn't perfect but it's good enough for our purposes
+function areEqual(obj1, obj2) {
+	return stableStringify(obj1) === stableStringify(obj2);
+}
+
+
+
+/**
+ * Calculate similarity score between two values (0-1)
+ * @param {*} a - First value to compare
+ * @param {*} b - Second value to compare
+ * @param {Object} options - Configuration options
+ * @returns {number} Similarity score between 0 and 1
+ */
+function fuzzySimilarity(a, b, options = {}) {
+	const defaultOptions = {
+		keyWeights: null, // Optional object mapping keys to weight values
+		stringComparer: simpleStringSimilarity, // Function to compare strings
+		numberTolerance: 0.1, // Relative tolerance for number comparison
+		caseSensitive: false, // Whether string comparisons are case sensitive
+		arrayOrderMatters: false, // Whether array element order matters
+	};
+
+	const config = { ...defaultOptions, ...options };
+	const { matches, total } = compareRecursive(a, b, config);
+	return total === 0 ? 1 : matches / total;
+}
+
+/**
+ * Recursively compare two values and calculate matches/total
+ * @param {*} a - First value
+ * @param {*} b - Second value
+ * @param {Object} config - Configuration options
+ * @returns {Object} Object with matches and total counts
+ */
+function compareRecursive(a, b, config, path = "") {
+	// Handle simple equality case
+	if (a === b) return { matches: 1, total: 1 };
+
+	// Handle null/undefined cases
+	if (a === null || b === null || a === undefined || b === undefined) {
+		return { matches: 0, total: 1 };
+	}
+
+	// Type mismatch
+	if (typeof a !== typeof b) return { matches: 0, total: 1 };
+
+	// Handle primitive types
+	if (typeof a === "string") {
+		return compareStrings(a, b, config);
+	}
+
+	if (typeof a === "number") {
+		return compareNumbers(a, b, config);
+	}
+
+	if (typeof a === "boolean") {
+		return { matches: a === b ? 1 : 0, total: 1 };
+	}
+
+	// Handle arrays
+	if (Array.isArray(a) && Array.isArray(b)) {
+		return compareArrays(a, b, config);
+	}
+
+	// Handle objects
+	if (typeof a === "object" && typeof b === "object") {
+		return compareObjects(a, b, config, path);
+	}
+
+	// Fallback for any other types
+	return { matches: a === b ? 1 : 0, total: 1 };
+}
+
+/**
+ * Compare two strings
+ */
+function compareStrings(a, b, config) {
+	if (!config.caseSensitive) {
+		a = a.toLowerCase();
+		b = b.toLowerCase();
+	}
+
+	if (a === b) return { matches: 1, total: 1 };
+
+	const similarity = config.stringComparer(a, b);
+	return { matches: similarity, total: 1 };
+}
+
+/**
+ * Compare two numbers
+ */
+function compareNumbers(a, b, config) {
+	if (a === b) return { matches: 1, total: 1 };
+
+	// Calculate relative difference
+	const max = Math.max(Math.abs(a), Math.abs(b));
+	if (max === 0) return { matches: 1, total: 1 }; // Both numbers are 0
+
+	const diff = Math.abs(a - b) / max;
+
+	// If within tolerance, give partial credit
+	if (diff <= config.numberTolerance) {
+		const score = 1 - (diff / config.numberTolerance);
+		return { matches: score, total: 1 };
+	}
+
+	return { matches: 0, total: 1 };
+}
+
+/**
+ * Compare two arrays
+ */
+function compareArrays(a, b, config) {
+	let matches = 0;
+	let total = 0;
+
+	if (config.arrayOrderMatters) {
+		// Ordered comparison (as in your original algorithm)
+		const minLen = Math.min(a.length, b.length);
+		for (let i = 0; i < minLen; i++) {
+			const res = compareRecursive(a[i], b[i], config, `[${i}]`);
+			matches += res.matches;
+			total += res.total;
+		}
+		// Penalize length differences
+		total += Math.abs(a.length - b.length);
+	} else {
+		// Best-match comparison (order doesn't matter)
+		// For each element in a, find its best match in b
+		const bUsed = new Set();
+
+		for (const itemA of a) {
+			let bestMatch = 0;
+			let bestIndex = -1;
+
+			// Find the best matching unused element in b
+			for (let i = 0; i < b.length; i++) {
+				if (bUsed.has(i)) continue;
+
+				const { matches: m, total: t } = compareRecursive(itemA, b[i], config);
+				const score = m / t;
+
+				if (score > bestMatch) {
+					bestMatch = score;
+					bestIndex = i;
+				}
+			}
+
+			if (bestIndex !== -1) {
+				const res = compareRecursive(itemA, b[bestIndex], config);
+				matches += res.matches;
+				total += res.total;
+				bUsed.add(bestIndex);
+			} else {
+				// No match found
+				total += 1;
+			}
+		}
+
+		// Penalize for extra elements in b
+		total += b.length - bUsed.size;
+	}
+
+	return { matches, total };
+}
+
+/**
+ * Compare two objects
+ */
+function compareObjects(a, b, config, path) {
+	let matches = 0;
+	let total = 0;
+
+	const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+
+	for (const key of keys) {
+		const keyPath = path ? `${path}.${key}` : key;
+		// Apply weight if available
+		const weight = config.keyWeights && config.keyWeights[keyPath] ?
+			config.keyWeights[keyPath] : 1;
+
+		const res = compareRecursive(a[key], b[key], config, keyPath);
+		matches += res.matches * weight;
+		total += res.total * weight;
+	}
+
+	return { matches, total };
+}
+
+/**
+ * Simple string similarity algorithm (Levenshtein distance based)
+ * @returns {number} Similarity between 0 and 1
+ */
+function simpleStringSimilarity(str1, str2) {
+	if (str1 === str2) return 1;
+	if (!str1 || !str2) return 0;
+
+	const len1 = str1.length;
+	const len2 = str2.length;
+
+	// For very different length strings, return low similarity
+	if (Math.max(len1, len2) > 100 || Math.max(len1, len2) / Math.min(len1, len2) > 3) {
+		return 0.1;
+	}
+
+	// Calculate Levenshtein distance
+	const distance = levenshteinDistance(str1, str2);
+	const maxLen = Math.max(len1, len2);
+
+	return 1 - (distance / maxLen);
+}
+
+/**
+ * Calculate Levenshtein distance between two strings
+ */
+function levenshteinDistance(str1, str2) {
+	const m = str1.length;
+	const n = str2.length;
+
+	// Create a matrix of size (m+1) x (n+1)
+	const dp = Array(m + 1).fill().map(() => Array(n + 1).fill(0));
+
+	// Initialize first row and column
+	for (let i = 0; i <= m; i++) dp[i][0] = i;
+	for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+	// Fill the matrix
+	for (let i = 1; i <= m; i++) {
+		for (let j = 1; j <= n; j++) {
+			const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+			dp[i][j] = Math.min(
+				dp[i - 1][j] + 1,      // deletion
+				dp[i][j - 1] + 1,      // insertion
+				dp[i - 1][j - 1] + cost // substitution
+			);
+		}
+	}
+
+	return dp[m][n];
 }
 
 window.MIXPANEL_CATCH_FETCH_ACTIVE = true;

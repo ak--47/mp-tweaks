@@ -26,7 +26,8 @@ export type ChromeStorage = {
 		enabled: boolean;
 	}
 	responseOverrides: {
-		[key: string]: Object
+		/** projectId : list of overrides */
+		[key: number]: Object[]
 	}	
   };
   
