@@ -992,20 +992,26 @@ function haveSameShape(obj1, obj2) {
 		return false;
 	}
 
-	// Check if all keys in obj1 are in obj2 and have the same shape
-	for (let key of keys1) {
-		if (!keys2.includes(key)) {
-			return false;
-		}
-		if (typeof obj1[key] === 'object' && typeof obj2[key] === 'object') {
-			if (!haveSameShape(obj1[key], obj2[key])) {
-				return false;
-			}
-		} else if (typeof obj1[key] !== typeof obj2[key]) {
-			// Check if the types of values are different
-			return false;
-		}
+	// check if all those keys are the same
+	if (!keys1.every(key => keys2.includes(key))) {
+		return false;
 	}
+
+
+	// Check if all keys in obj1 are in obj2 and have the same shape
+	// for (let key of keys1) {
+	// 	if (!keys2.includes(key)) {
+	// 		return false;
+	// 	}
+	// 	if (typeof obj1[key] === 'object' && typeof obj2[key] === 'object') {
+	// 		if (!haveSameShape(obj1[key], obj2[key])) {
+	// 			return false;
+	// 		}
+	// 	} else if (typeof obj1[key] !== typeof obj2[key]) {
+	// 		// Check if the types of values are different
+	// 		return false;
+	// 	}
+	// }
 
 	return true;
 }
