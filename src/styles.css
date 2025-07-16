@@ -99,8 +99,6 @@ div#loader svg {
   margin-top: -10px;
 }
 
-#persistentOptions {
-}
 
 .small {
   margin: 0;
@@ -259,6 +257,19 @@ a:hover {
   font-weight: bold;
   outline: none;
   opacity: 0.5;
+}
+
+.featureFlagButtons {
+  font-size: 9px;
+  padding: 6px 8px 8px 6px;
+}
+
+.demoSeqButton {
+  color: var(--primary);
+}
+
+.toolButton {
+  color: var(--secondary);
 }
 
 .button:hover {

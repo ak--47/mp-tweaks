@@ -105,6 +105,59 @@
 						target="_blank">add a new tool</a></p>
 			</div>
 
+			<!-- CREATE PROJECTS -->
+			<div id="createProject"
+				class="section">
+				<h2>Project Creator</h2>
+				<p class="small">make a <b>new project</b> in <b>your personal org</b> &emsp; &emsp; &emsp; <span
+						id="orgLabel"
+						class="statusText hide">connected org: <b>FOO</b></span></p>
+				<button class="button fa"
+					id="makeProject">MAKE PROJECT</button>
+				<button class="button fa"
+					id="resetUser">REAUTH</button>
+				<svg id="makeProjectSpinner"
+					class="hidden"
+					width="50px"
+					height="50px"
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 100 100"
+					preserveAspectRatio="xMidYMid"
+					class="lds-rolling"
+					style="background: none;">
+					<circle cx="50"
+						cy="50"
+						fill="none"
+						ng-attr-stroke="{{config.color}}"
+						ng-attr-stroke-width="{{config.width}}"
+						ng-attr-r="{{config.radius}}"
+						ng-attr-stroke-dasharray="{{config.dasharray}}"
+						stroke="#DF7800"
+						stroke-width="4"
+						r="30"
+						stroke-dasharray="141.37166941154067 49.12388980384689"
+						transform="rotate(72.4232 50 50)">
+						<animateTransform attributeName="transform"
+							type="rotate"
+							calcMode="linear"
+							values="0 50 50;360 50 50"
+							keyTimes="0;1"
+							dur="1.9s"
+							begin="0s"
+							repeatCount="indefinite"></animateTransform>
+					</circle>
+				</svg>
+
+				<div id="projectDetails">
+					<p><textarea class="hidden"
+							id="apiRes"
+							style="height: 200px; width: 90%;"></textarea></p>
+				</div>
+
+			</div>
+
+
+
 
 			<!-- SESSION REPLAY -->
 			<div id="sessionReplay"
@@ -126,7 +179,8 @@
 			</div>
 
 			<!-- CHART EDITOR -->
-			<div id="dataEditor"
+			<div style="display: none;"
+				id="dataEditor"
 				class="section">
 				<h2>Chart Editor / API Query Builder</h2>
 				<p class="small"><b>change the data</b> for a chart in the <b>active tab</b><br />
@@ -179,59 +233,6 @@
 
 				</div>
 			</div>
-
-
-			<!-- CREATE PROJECTS -->
-			<div id="createProject"
-				class="section">
-				<h2>Project Creator</h2>
-				<p class="small">make a <b>new project</b> in <b>your personal org</b> &emsp; &emsp; &emsp; <span
-						id="orgLabel"
-						class="statusText hide">connected org: <b>FOO</b></span></p>
-				<button class="button fa"
-					id="makeProject">MAKE PROJECT</button>
-				<button class="button fa"
-					id="resetUser">REAUTH</button>
-				<svg id="makeProjectSpinner"
-					class="hidden"
-					width="50px"
-					height="50px"
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 100 100"
-					preserveAspectRatio="xMidYMid"
-					class="lds-rolling"
-					style="background: none;">
-					<circle cx="50"
-						cy="50"
-						fill="none"
-						ng-attr-stroke="{{config.color}}"
-						ng-attr-stroke-width="{{config.width}}"
-						ng-attr-r="{{config.radius}}"
-						ng-attr-stroke-dasharray="{{config.dasharray}}"
-						stroke="#DF7800"
-						stroke-width="4"
-						r="30"
-						stroke-dasharray="141.37166941154067 49.12388980384689"
-						transform="rotate(72.4232 50 50)">
-						<animateTransform attributeName="transform"
-							type="rotate"
-							calcMode="linear"
-							values="0 50 50;360 50 50"
-							keyTimes="0;1"
-							dur="1.9s"
-							begin="0s"
-							repeatCount="indefinite"></animateTransform>
-					</circle>
-				</svg>
-
-				<div id="projectDetails">
-					<p><textarea class="hidden"
-							id="apiRes"
-							style="height: 200px; width: 90%;"></textarea></p>
-				</div>
-
-			</div>
-
 
 
 			<!-- FEATURE FLAGS -->

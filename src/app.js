@@ -14,16 +14,7 @@ const APP = {
 		{ name: 'featureFlags', url: FEATURE_FLAG_URI },
 		{ name: 'demoLinks', url: DEMO_GROUPS_URI },
 		{ name: 'tools', url: TOOLS_URI }
-	],
-	tools: {
-		"dm3": "https://dm3.mixpanel.org",
-		"dm lite": "https://dm3.mixpanel.org/lite",
-		"fixpanel": "https://ak--47.github.io/fixpanel/",
-		"power tools": "https://mixpanel-power-tools-gui-lmozz6xkha-uc.a.run.app/",
-		"replay sim": "https://npc-mixpanel-lmozz6xkha-uc.a.run.app/",
-		"bq perms": "https://us-central1-mixpanel-gtm-training.cloudfunctions.net/mp-bq-iam-demo"
-
-	},
+	],	
 	DOM: {},
 	cacheDOM,
 	bindListeners,
@@ -119,8 +110,73 @@ function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Cache helper functions
+function isCacheFresh(cacheItem, maxAgeMs = 5 * 60 * 1000) {
+	// Default: 5 minutes cache
+	if (!cacheItem || !cacheItem.timestamp) return false;
+	const now = Date.now();
+	return (now - cacheItem.timestamp) < maxAgeMs;
+}
+
+async function getCachedData(name) {
+	try {
+		const storage = await getStorage();
+		const cacheItem = storage.externalDataCache?.[name];
+		if (cacheItem && isCacheFresh(cacheItem)) {
+			console.log(`mp-tweaks: using fresh cache for ${name}`);
+			return cacheItem.data;
+		}
+		return null;
+	} catch (e) {
+		console.error(`mp-tweaks: error reading cache for ${name}:`, e);
+		return null;
+	}
+}
+
+async function setCachedData(name, data) {
+	try {
+		const storage = await getStorage();
+		if (!storage.externalDataCache) {
+			storage.externalDataCache = {
+				featureFlags: { data: [], timestamp: 0 },
+				demoLinks: { data: [], timestamp: 0 },
+				tools: { data: [], timestamp: 0 }
+			};
+		}
+		storage.externalDataCache[name] = {
+			data: data,
+			timestamp: Date.now()
+		};
+		await setStorage(storage);
+		console.log(`mp-tweaks: cached data for ${name}`);
+	} catch (e) {
+		console.error(`mp-tweaks: error saving cache for ${name}:`, e);
+	}
+}
+
+async function getStaleCache(name) {
+	try {
+		const storage = await getStorage();
+		const cacheItem = storage.externalDataCache?.[name];
+		if (cacheItem && cacheItem.data && cacheItem.data.length > 0) {
+			console.log(`mp-tweaks: using stale cache fallback for ${name}`);
+			return cacheItem.data;
+		}
+		return null;
+	} catch (e) {
+		console.error(`mp-tweaks: error reading stale cache for ${name}:`, e);
+		return null;
+	}
+}
 
 async function fetchCSV(url, name) {
+	// First, check if we have fresh cached data
+	const cachedData = await getCachedData(name);
+	if (cachedData) {
+		return cachedData;
+	}
+
+	// No fresh cache, try to fetch from network
 	try {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort('timeout'), 3000);
@@ -133,32 +189,20 @@ async function fetchCSV(url, name) {
 			header: true
 		}).data;
 
+		// Cache the fresh data
+		await setCachedData(name, parseData);
 
-
-		// this.buttonData = parseData;
 		return parseData;
 	} catch (e) {
-
-		try {
-			const storage = await getStorage();
-			const cache = storage[name];
-			if (cache) {
-				return cache;
-			}
-			else {
-				track('error: fetchCSV (cache fail)', { error: e });
-				return [];
-			}
-
+		// Network failed, try to use stale cache as fallback
+		const staleData = await getStaleCache(name);
+		if (staleData) {
+			return staleData;
 		}
-		catch (e) {
-			// Handle fetch errors (including abort)
-			track('error: fetchCSV', { error: e });
-			// return [{ label: "QTS", flag: 'query_time_sampling' }];
 
-			//serve from cache
-			return [];
-		}
+		// No cache available, return empty array
+		track('error: fetchCSV (no cache fallback)', { error: e });
+		return [];
 	}
 }
 
@@ -474,22 +518,40 @@ function loadInterface() {
 		if (modHeaders.enabled) this.DOM.modHeaderStatus.textContent = `ENABLED`;
 		else this.DOM.modHeaderStatus.textContent = `DISABLED`;
 
+		//load saved headers or use defaults
+		const headersToLoad = modHeaders.savedHeaders && modHeaders.savedHeaders.length > 0 
+			? modHeaders.savedHeaders 
+			: []; // Use empty array, let HTML defaults show
+		
 		//hack to deal with more than 3 headers...
-		if (modHeaders.headers.length > 3) {
-			const numClicks = modHeaders.headers.length - 3;
+		if (headersToLoad.length > 3) {
+			const numClicks = headersToLoad.length - 3;
 			for (let i = 0; i < numClicks; i++) {
 				this.DOM.addHeader.click(); //yea i know...
 				this.cacheDOM(); //re-cache the DOM
 			}
 		}
 
-		//load headers
-		modHeaders.headers.forEach((obj, index) => {
-			const { enabled, ...header } = obj;
-			this.DOM.checkPairs[index].checked = enabled;
-			this.DOM.headerKeys[index].value = Object.keys(header)[0];
-			this.DOM.headerValues[index].value = Object.values(header)[0];
-		});
+		//load headers (either saved or active for backwards compatibility)
+		if (headersToLoad.length > 0) {
+			headersToLoad.forEach((obj, index) => {
+				if (this.DOM.checkPairs[index] && this.DOM.headerKeys[index] && this.DOM.headerValues[index]) {
+					this.DOM.checkPairs[index].checked = obj.enabled || false;
+					this.DOM.headerKeys[index].value = obj.key || '';
+					this.DOM.headerValues[index].value = obj.value || '';
+				}
+			});
+		} else if (modHeaders.headers.length > 0) {
+			// Backwards compatibility: load from active headers if no savedHeaders
+			modHeaders.headers.forEach((obj, index) => {
+				if (this.DOM.checkPairs[index] && this.DOM.headerKeys[index] && this.DOM.headerValues[index]) {
+					const { enabled, ...header } = obj;
+					this.DOM.checkPairs[index].checked = enabled;
+					this.DOM.headerKeys[index].value = Object.keys(header)[0];
+					this.DOM.headerValues[index].value = Object.values(header)[0];
+				}
+			});
+		}
 
 		//version
 		this.DOM.versionLabel.textContent = `v${APP_VERSION}`;
@@ -756,6 +818,8 @@ function bindListeners() {
 		this.DOM.headerKeys.forEach(node => {
 			node.addEventListener('input', () => {
 				messageWorker('store-headers', { headers: this.getHeaders() });
+				// Also save all headers text for persistence
+				messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 			});
 		});
 
@@ -774,6 +838,8 @@ function bindListeners() {
 		this.DOM.headerValues.forEach(node => {
 			node.addEventListener('input', () => {
 				messageWorker('store-headers', { headers: this.getHeaders() });
+				// Also save all headers text for persistence
+				messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 			});
 		});
 
@@ -796,6 +862,8 @@ function bindListeners() {
 				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
 				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
 				messageWorker('mod-headers', { headers: data });
+				// Also save all headers text for persistence
+				messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 			});
 		});
 
@@ -820,13 +888,27 @@ function bindListeners() {
 
 		// RESET
 		this.DOM.clearHeaders.addEventListener('click', () => {
-			this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder') || "");
+			// Remove all additional rows first (keep only the first 3)
+			const additionalRows = Array.from(this.DOM.userHeaders.children).slice(3);
+			additionalRows.forEach(row => row.remove());
+			
+			// Reset the first 3 rows to default state
+			const defaultHeaders = ['x-imp', 'x-profile', 'x-assets-commit'];
+			this.DOM.headerKeys.forEach((node, index) => {
+				if (index < 3) {
+					node.value = defaultHeaders[index] || '';
+				}
+			});
 			this.DOM.headerValues.forEach(node => node.value = "");
 			this.DOM.checkPairs.forEach(node => node.checked = false);
+			
+			// Update status
 			this.DOM.modHeaderStatus.textContent = `DISABLED`;
-			const additionalRows = Array.from(this.DOM.userHeaders).slice(3);
-			additionalRows.forEach(row => row.remove());
+			
+			// Clear all storage and turn off headers
 			messageWorker('reset-headers');
+			// Clear saved headers to show defaults next time
+			messageWorker('store-headers-text', { savedHeaders: [] });
 		});
 
 		this.DOM.nukeCookies.addEventListener('click', async () => {
@@ -917,7 +999,7 @@ function buildFlagButtons(object) {
 	let flag = object.flag;
 	let buttonId = object.label.replace(/\s/g, '');
 	let newButton = document.createElement('BUTTON');
-	newButton.setAttribute('class', 'button fa');
+	newButton.setAttribute('class', 'button fa featureFlagButtons');
 	newButton.setAttribute('id', buttonId);
 	newButton.appendChild(document.createTextNode(name.toUpperCase()));
 	newButton.onclick = async () => {
@@ -943,7 +1025,7 @@ function buildToolsButtons(buttonData) {
 	}
 
 	const newButton = document.createElement('BUTTON');
-	newButton.setAttribute('class', 'button fa');
+	newButton.setAttribute('class', 'button fa toolButton');
 	newButton.setAttribute('id', tool);
 	newButton.appendChild(document.createTextNode(tool.toUpperCase()));
 	newButton.onclick = async () => {
@@ -955,7 +1037,7 @@ function buildToolsButtons(buttonData) {
 
 function buildDemoButtons(demo, data) {
 	let newButton = document.createElement('BUTTON');
-	newButton.setAttribute('class', 'button fa');
+	newButton.setAttribute('class', 'button fa demoSeqButton');
 	newButton.setAttribute('id', demo);
 	newButton.appendChild(document.createTextNode(demo.toUpperCase()));
 	newButton.onclick = async () => {
@@ -973,10 +1055,10 @@ function buildDemoButtons(demo, data) {
 				meta = {};
 			}
 
-			let url;
-			if (STORAGE.whoami.email) url = addQueryParams(URL, { user: STORAGE.whoami.email });
-			else url = URL;
-			messageWorker('open-tab', { url, ...meta });
+			// let url;
+			// if (STORAGE.whoami.email) url = addQueryParams(URL, { user: STORAGE.whoami.email });
+			// else url = URL;
+			messageWorker('open-tab', { url: URL, ...meta });
 		});
 	};
 	this.DOM.demoLinksWrapper.appendChild(newButton);
@@ -1074,6 +1156,33 @@ function getHeaders() {
 	return data;
 }
 
+function getAllHeaders() {
+	const data = [];
+	//always live query the DOM - capture ALL headers including empty ones for persistence
+	
+	/** @type {NodeListOf<HTMLInputElement>} */
+	const headerKeys = document.querySelectorAll('.headerKey');
+	/** @type {NodeListOf<HTMLInputElement>} */
+	const headerValues = document.querySelectorAll('.headerValue');
+	/** @type {NodeListOf<HTMLInputElement>} */
+	const checkPairs = document.querySelectorAll('.checkPair');
+
+	headerKeys.forEach((keyInput, index) => {
+		const key = keyInput.value.trim();
+		const value = headerValues[index] ? headerValues[index].value.trim() : '';
+		const enabled = checkPairs[index] ? checkPairs[index].checked : false;
+		
+		// Capture all headers, even empty ones for persistence
+		data.push({ 
+			key: key, 
+			value: value, 
+			enabled: enabled 
+		});
+	});
+
+	return data;
+}
+
 function addHeaderRow() {
 	/** @type {HTMLDivElement} */
 	const row = document.createElement('div');
@@ -1093,10 +1202,12 @@ function addHeaderRow() {
 
 	row?.querySelector('.headerKey')?.addEventListener('input', () => {
 		messageWorker('store-headers', { headers: this.getHeaders() });
+		messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 	});
 
 	row?.querySelector('.headerValue')?.addEventListener('input', () => {
 		messageWorker('store-headers', { headers: this.getHeaders() });
+		messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 	});
 
 	row?.querySelector('.headerKey')?.addEventListener('blur', () => {
@@ -1113,6 +1224,7 @@ function addHeaderRow() {
 		if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
 		if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
 		messageWorker('mod-headers', { headers: data });
+		messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 	});
 
 	row?.querySelector('.deletePair')?.addEventListener('click', () => {
@@ -1124,6 +1236,7 @@ function addHeaderRow() {
 		messageWorker('mod-headers', { headers: data }).then(() => {
 			messageWorker('reload');
 		});
+		messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 	});
 
 
