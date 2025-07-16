@@ -12,8 +12,8 @@ export type ChromeStorage = {
 	  oauthToken: string;
 	  orgName: string;
 	};
-	featureFlags: Object[];
-	demoLinks: Object[];
+	// featureFlags: Object[];
+	// demoLinks: Object[];
 	sessionReplay: {
 	  token: string;
 	  enabled: boolean;
@@ -24,6 +24,10 @@ export type ChromeStorage = {
 	modHeaders: {
 		headers: ModHeaders[]
 		enabled: boolean;
+	}
+	responseOverrides: {
+		/** projectId : list of overrides */
+		[key: number]: Object[]
 	}	
   };
   
@@ -37,4 +41,4 @@ type ModHeaders = AdditionalHeaders & {
     enabled: boolean;
 }
 
-type Hacks = '100x' | 'hideBanners' | 'renameTabs'
+type Hacks = '100x' | 'hideBanners' | 'renameTabs' | 'hideBetas'

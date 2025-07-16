@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.34`;
+const APP_VERSION = `2.35`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
@@ -14,16 +14,7 @@ const APP = {
 		{ name: 'featureFlags', url: FEATURE_FLAG_URI },
 		{ name: 'demoLinks', url: DEMO_GROUPS_URI },
 		{ name: 'tools', url: TOOLS_URI }
-	],
-	tools: {
-		"dm3": "https://dm3.mixpanel.org",
-		"dm lite": "https://dm3.mixpanel.org/lite",
-		"fixpanel": "https://ak--47.github.io/fixpanel/",
-		"power tools": "https://mixpanel-power-tools-gui-lmozz6xkha-uc.a.run.app/",
-		"replay sim": "https://npc-mixpanel-lmozz6xkha-uc.a.run.app/",
-		"bq perms": "https://us-central1-mixpanel-gtm-training.cloudfunctions.net/mp-bq-iam-demo"
-
-	},
+	],	
 	DOM: {},
 	cacheDOM,
 	bindListeners,
@@ -45,6 +36,7 @@ const APP = {
 	queryBuilderHandleCatch,
 	getHeaders,
 	addQueryParams,
+	storeBatchResponses,
 	init: function () {
 		this.cacheDOM();
 		this.getStorage().then(() => {
@@ -118,8 +110,73 @@ function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Cache helper functions
+function isCacheFresh(cacheItem, maxAgeMs = 5 * 60 * 1000) {
+	// Default: 5 minutes cache
+	if (!cacheItem || !cacheItem.timestamp) return false;
+	const now = Date.now();
+	return (now - cacheItem.timestamp) < maxAgeMs;
+}
+
+async function getCachedData(name) {
+	try {
+		const storage = await getStorage();
+		const cacheItem = storage.externalDataCache?.[name];
+		if (cacheItem && isCacheFresh(cacheItem)) {
+			console.log(`mp-tweaks: using fresh cache for ${name}`);
+			return cacheItem.data;
+		}
+		return null;
+	} catch (e) {
+		console.error(`mp-tweaks: error reading cache for ${name}:`, e);
+		return null;
+	}
+}
+
+async function setCachedData(name, data) {
+	try {
+		const storage = await getStorage();
+		if (!storage.externalDataCache) {
+			storage.externalDataCache = {
+				featureFlags: { data: [], timestamp: 0 },
+				demoLinks: { data: [], timestamp: 0 },
+				tools: { data: [], timestamp: 0 }
+			};
+		}
+		storage.externalDataCache[name] = {
+			data: data,
+			timestamp: Date.now()
+		};
+		await setStorage(storage);
+		console.log(`mp-tweaks: cached data for ${name}`);
+	} catch (e) {
+		console.error(`mp-tweaks: error saving cache for ${name}:`, e);
+	}
+}
+
+async function getStaleCache(name) {
+	try {
+		const storage = await getStorage();
+		const cacheItem = storage.externalDataCache?.[name];
+		if (cacheItem && cacheItem.data && cacheItem.data.length > 0) {
+			console.log(`mp-tweaks: using stale cache fallback for ${name}`);
+			return cacheItem.data;
+		}
+		return null;
+	} catch (e) {
+		console.error(`mp-tweaks: error reading stale cache for ${name}:`, e);
+		return null;
+	}
+}
 
 async function fetchCSV(url, name) {
+	// First, check if we have fresh cached data
+	const cachedData = await getCachedData(name);
+	if (cachedData) {
+		return cachedData;
+	}
+
+	// No fresh cache, try to fetch from network
 	try {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort('timeout'), 3000);
@@ -132,32 +189,20 @@ async function fetchCSV(url, name) {
 			header: true
 		}).data;
 
+		// Cache the fresh data
+		await setCachedData(name, parseData);
 
-
-		// this.buttonData = parseData;
 		return parseData;
 	} catch (e) {
-
-		try {
-			const storage = await getStorage();
-			const cache = storage[name];
-			if (cache) {
-				return cache;
-			}
-			else {
-				track('error: fetchCSV (cache fail)', { error: e });
-				return [];
-			}
-
+		// Network failed, try to use stale cache as fallback
+		const staleData = await getStaleCache(name);
+		if (staleData) {
+			return staleData;
 		}
-		catch (e) {
-			// Handle fetch errors (including abort)
-			track('error: fetchCSV', { error: e });
-			// return [{ label: "QTS", flag: 'query_time_sampling' }];
 
-			//serve from cache
-			return [];
-		}
+		// No cache available, return empty array
+		track('error: fetchCSV (no cache fallback)', { error: e });
+		return [];
 	}
 }
 
@@ -180,13 +225,15 @@ async function messageWorker(action, data) {
 
 async function getStorage(keys = null) {
 	return new Promise((resolve, reject) => {
-		chrome.storage.sync.get(keys, (result) => {
+		chrome.storage.local.get(keys, (result) => {
 			if (chrome.runtime.lastError) {
-				if (STORAGE) resolve(STORAGE); //return the cached storage
-				track('error: getStorage (cache miss)', { error: chrome.runtime.lastError });
-				reject(new Error(chrome.runtime.lastError));
+				if (STORAGE) {
+					resolve(STORAGE); // use cached storage if available
+				} else {
+					track('error: getStorage (cache miss)', { error: chrome.runtime.lastError });
+					reject(new Error(chrome.runtime.lastError.message || 'Unknown error'));
+				}
 			} else {
-				/** @type {PersistentStorage} */
 				STORAGE = result;
 				resolve(result);
 			}
@@ -196,16 +243,27 @@ async function getStorage(keys = null) {
 
 async function setStorage(data) {
 	data.last_updated = Date.now();
+
 	return new Promise((resolve, reject) => {
-		chrome.storage.sync.set(data, () => {
+		chrome.storage.local.get(null, (existing) => {
 			if (chrome.runtime.lastError) {
-				track('error: setStorage', { error: chrome.runtime.lastError });
-				reject(new Error(chrome.runtime.lastError));
-			} else {
-				messageWorker('refresh-storage'); // tell the worker to refresh
-				STORAGE = data;
-				resolve(data);
+				track('error: setStorage:get', { error: chrome.runtime.lastError });
+				reject(new Error(chrome.runtime.lastError.message || 'Unknown error during get before set'));
+				return;
 			}
+
+			const merged = { ...existing, ...data };
+
+			chrome.storage.local.set(merged, () => {
+				if (chrome.runtime.lastError) {
+					track('error: setStorage:set', { error: chrome.runtime.lastError });
+					reject(new Error(chrome.runtime.lastError.message || 'Unknown error during set'));
+				} else {
+					STORAGE = merged;
+					messageWorker('refresh-storage'); // tell the worker to refresh
+					resolve(merged);
+				}
+			});
 		});
 	});
 }
@@ -218,11 +276,12 @@ function listenForWorker() {
 
 		switch (message.action) {
 			case "caught-response":
-				const { data: response } = message;
-				APP.dataEditorHandleCatch(response);
+				var { api_url, request, response, ui_url } = message.data;
+				APP.dataEditorHandleCatch(api_url, ui_url, request, response);
 				break;
 			case "caught-request":
-				const { data: request } = message;
+				var { api_url, request } = message.data;
+				//todo:
 				APP.queryBuilderHandleCatch(request);
 				break;
 			case "refresh-storage":
@@ -247,7 +306,7 @@ function listenForWorker() {
 				break;
 		}
 
-		return true; // Keep the message channel open for sendResponse
+		// return true; // Keep the message channel open for sendResponse
 	});
 }
 
@@ -264,23 +323,44 @@ function sendMessageAsync(payload) {
 	});
 }
 
-function dataEditorHandleCatch(data) {
-	this.DOM.fetchChartData.classList.add('hidden');
-	this.DOM.buildChartPayload.classList.add('hidden');
+function dataEditorHandleCatch(api_url, ui_url, request, response) {
+	this.DOM.queryMetadata.classList.remove('hidden');
 	this.DOM.postChartData.classList.remove('hidden');
 	this.DOM.resetDataEditor.classList.remove('hidden');
 	this.DOM.rawDataWrapper.classList.remove('hidden');
 	this.DOM.rawDataTextField.classList.remove('hidden');
 	this.DOM.randomize.classList.remove('hidden');
 	this.DOM.saveChartData.classList.remove('hidden');
-	this.DOM.rawDataTextField.value = JSON.stringify(data, null, 2);
+
+	this.DOM.fetchChartData.classList.add('hidden');
+	this.DOM.buildChartPayload.classList.add('hidden');
+
+	this.DOM.rawDataTextField.value = JSON.stringify(response, null, 2);
+	this.DOM.origResponse.setAttribute('data', JSON.stringify(response));
+	this.DOM.apiUrl.textContent = api_url;
+	this.DOM.apiUrl.href = api_url;
+	this.DOM.uiUrl.textContent = ui_url;
+	this.DOM.uiUrl.href = ui_url;
+	const apiParams = extractBookmark(request);
+	const pretty = JSON.stringify(apiParams, null, 2);
+	this.DOM.apiPayload.setAttribute('data', JSON.stringify(apiParams));
+	this.DOM.apiPayload.title = pretty;
+	this.DOM.apiPayload.textContent = `{...}`;
+
+}
+
+function extractBookmark(request) {
+	const { bookmark = {} } = request;
+	const payload = { bookmark };
+	return payload;
 }
 
 function queryBuilderHandleCatch(data) {
+	this.DOM.lastChartLink.closest('p').classList.add('hidden');
 	this.DOM.fetchChartData.classList.add('hidden');
 	this.DOM.buildChartPayload.classList.add('hidden');
 	this.DOM.postChartData.classList.add('hidden');
-	this.DOM.resetDataEditor.classList.remove('hidden');
+	this.DOM.resetDataEditor.classList.add('hidden');
 	this.DOM.rawDataWrapper.classList.remove('hidden');
 	this.DOM.rawDataTextField.classList.remove('hidden');
 	this.DOM.randomize.classList.add('hidden');
@@ -352,6 +432,7 @@ function cacheDOM() {
 	this.DOM.toggles = document.querySelectorAll('.toggle');
 	this.DOM.persistentOptions = document.querySelector('#persistentOptions');
 	this.DOM.hideBanners = document.querySelector('#hideBanners');
+	this.DOM.hideBetas = document.querySelector('#hideBetas');
 	this.DOM.renameTabs = document.querySelector('#renameTabs');
 	this.DOM.hundredX = document.querySelector('#hundredX');
 
@@ -366,6 +447,11 @@ function cacheDOM() {
 	this.DOM.saveChartData = document.querySelector('#saveChartData');
 	this.DOM.contextError = document.querySelector('#contextError');
 	this.DOM.jsonError = document.querySelector('#badJSON');
+	this.DOM.queryMetadata = document.querySelector('#queryMetadata');
+	this.DOM.apiUrl = document.querySelector('#apiUrl');
+	this.DOM.uiUrl = document.querySelector('#uiUrl');
+	this.DOM.apiPayload = document.querySelector('#apiPayload');
+	this.DOM.origResponse = document.querySelector('#origResponse');
 
 	//project creator
 	this.DOM.makeProject = document.querySelector('#makeProject');
@@ -432,25 +518,45 @@ function loadInterface() {
 		if (modHeaders.enabled) this.DOM.modHeaderStatus.textContent = `ENABLED`;
 		else this.DOM.modHeaderStatus.textContent = `DISABLED`;
 
+		//load saved headers or use defaults
+		const headersToLoad = modHeaders.savedHeaders && modHeaders.savedHeaders.length > 0 
+			? modHeaders.savedHeaders 
+			: []; // Use empty array, let HTML defaults show
+		
 		//hack to deal with more than 3 headers...
-		if (modHeaders.headers.length > 3) {
-			const numClicks = modHeaders.headers.length - 3;
+		if (headersToLoad.length > 3) {
+			const numClicks = headersToLoad.length - 3;
 			for (let i = 0; i < numClicks; i++) {
 				this.DOM.addHeader.click(); //yea i know...
 				this.cacheDOM(); //re-cache the DOM
 			}
 		}
 
-		//load headers
-		modHeaders.headers.forEach((obj, index) => {
-			const { enabled, ...header } = obj;
-			this.DOM.checkPairs[index].checked = enabled;
-			this.DOM.headerKeys[index].value = Object.keys(header)[0];
-			this.DOM.headerValues[index].value = Object.values(header)[0];
-		});
+		//load headers (either saved or active for backwards compatibility)
+		if (headersToLoad.length > 0) {
+			headersToLoad.forEach((obj, index) => {
+				if (this.DOM.checkPairs[index] && this.DOM.headerKeys[index] && this.DOM.headerValues[index]) {
+					this.DOM.checkPairs[index].checked = obj.enabled || false;
+					this.DOM.headerKeys[index].value = obj.key || '';
+					this.DOM.headerValues[index].value = obj.value || '';
+				}
+			});
+		} else if (modHeaders.headers.length > 0) {
+			// Backwards compatibility: load from active headers if no savedHeaders
+			modHeaders.headers.forEach((obj, index) => {
+				if (this.DOM.checkPairs[index] && this.DOM.headerKeys[index] && this.DOM.headerValues[index]) {
+					const { enabled, ...header } = obj;
+					this.DOM.checkPairs[index].checked = enabled;
+					this.DOM.headerKeys[index].value = Object.keys(header)[0];
+					this.DOM.headerValues[index].value = Object.values(header)[0];
+				}
+			});
+		}
 
 		//version
 		this.DOM.versionLabel.textContent = `v${APP_VERSION}`;
+
+		renderChartOverrides();
 
 	}
 	catch (e) {
@@ -567,6 +673,23 @@ function bindListeners() {
 
 		});
 
+		this.DOM.apiPayload.addEventListener('click', (e) => {
+			e.preventDefault(); // prevent jump-to-top behavior
+			const json = this.DOM.apiPayload.getAttribute('data'); // stored as attribute
+			if (!json) return;
+			try {
+				const prettyJSON = JSON.stringify(JSON.parse(json), null, 2);
+				navigator.clipboard.writeText(prettyJSON).then(() => {
+					console.log("mp-tweaks: payload copied to clipboard!");
+					this.DOM.apiPayload.textContent = "Copied!";
+					setTimeout(() => (this.DOM.apiPayload.textContent = `{...}`), 500);
+				});
+			} catch (err) {
+				console.error("mp-tweaks: Failed to copy payload", err);
+			}
+		});
+
+
 		//DRAW CHART DATA
 		this.DOM.postChartData.addEventListener('click', () => {
 			//validate we have JSON
@@ -600,21 +723,46 @@ function bindListeners() {
 
 		//RESET DATA EDITOR
 		this.DOM.resetDataEditor.addEventListener('click', () => {
-			this.DOM.fetchChartData.classList.remove('hidden');
-			this.DOM.buildChartPayload.classList.remove('hidden');
 			this.DOM.postChartData.classList.add('hidden');
-			this.DOM.resetDataEditor.classList.add('hidden');
 			this.DOM.rawDataWrapper.classList.add('hidden');
 			this.DOM.randomize.classList.add('hidden');
 			this.DOM.contextError.classList.add('hidden');
 			this.DOM.jsonError.classList.add('hidden');
 			this.DOM.saveChartData.classList.add('hidden');
+			this.DOM.queryMetadata.classList.add('hidden');
+
+			this.DOM.fetchChartData.classList.remove('hidden');
+			this.DOM.buildChartPayload.classList.remove('hidden');
+			this.DOM.resetDataEditor.classList.remove('hidden');
+
+			messageWorker('clear-responses')
+				.then(() => {
+					console.log('mp-tweaks: cleared responses');
+					renderChartOverrides();
+				})
+				.catch(error => {
+					console.error('mp-tweaks: error clearing responses', error);
+				});
+
 		});
 
 		//SAVE DATA
 		this.DOM.saveChartData.addEventListener('click', () => {
-			const chartData = JSON.parse(this.DOM.rawDataTextField.value);
-			this.saveJSON(chartData, `data-${chartData?.computed_at}` || "data");
+			const data = {
+				chartData: JSON.parse(this.DOM.rawDataTextField.value),
+				chartUiUrl: this.DOM.uiUrl.textContent,
+				chartApiUrl: this.DOM.apiUrl.textContent,
+				chartParams: JSON.parse(this.DOM.apiPayload.getAttribute('data')),
+				chartOrigData: JSON.parse(this.DOM.origResponse.getAttribute('data'))
+			};
+			messageWorker('save-response', { ...data })
+				.then(response => {
+					console.log('mp-tweaks: worker response saved', response);
+					renderChartOverrides();
+				})
+				.catch(error => {
+					console.error('mp-tweaks: worker response error', error);
+				});
 		});
 
 		//SESSION REPLAY
@@ -670,6 +818,8 @@ function bindListeners() {
 		this.DOM.headerKeys.forEach(node => {
 			node.addEventListener('input', () => {
 				messageWorker('store-headers', { headers: this.getHeaders() });
+				// Also save all headers text for persistence
+				messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 			});
 		});
 
@@ -688,6 +838,8 @@ function bindListeners() {
 		this.DOM.headerValues.forEach(node => {
 			node.addEventListener('input', () => {
 				messageWorker('store-headers', { headers: this.getHeaders() });
+				// Also save all headers text for persistence
+				messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 			});
 		});
 
@@ -710,6 +862,8 @@ function bindListeners() {
 				if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
 				if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
 				messageWorker('mod-headers', { headers: data });
+				// Also save all headers text for persistence
+				messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 			});
 		});
 
@@ -734,13 +888,27 @@ function bindListeners() {
 
 		// RESET
 		this.DOM.clearHeaders.addEventListener('click', () => {
-			this.DOM.headerKeys.forEach(node => node.value = node.getAttribute('placeholder') || "");
+			// Remove all additional rows first (keep only the first 3)
+			const additionalRows = Array.from(this.DOM.userHeaders.children).slice(3);
+			additionalRows.forEach(row => row.remove());
+			
+			// Reset the first 3 rows to default state
+			const defaultHeaders = ['x-imp', 'x-profile', 'x-assets-commit'];
+			this.DOM.headerKeys.forEach((node, index) => {
+				if (index < 3) {
+					node.value = defaultHeaders[index] || '';
+				}
+			});
 			this.DOM.headerValues.forEach(node => node.value = "");
 			this.DOM.checkPairs.forEach(node => node.checked = false);
+			
+			// Update status
 			this.DOM.modHeaderStatus.textContent = `DISABLED`;
-			const additionalRows = Array.from(this.DOM.userHeaders).slice(3);
-			additionalRows.forEach(row => row.remove());
+			
+			// Clear all storage and turn off headers
 			messageWorker('reset-headers');
+			// Clear saved headers to show defaults next time
+			messageWorker('store-headers-text', { savedHeaders: [] });
 		});
 
 		this.DOM.nukeCookies.addEventListener('click', async () => {
@@ -760,12 +928,78 @@ function bindListeners() {
 	}
 }
 
+//todo: make this better
+function renderChartOverrides() {
+	const overrides = STORAGE?.responseOverrides || {};
+	const container = document.getElementById('overrideList');
+	if (!container) {
+		console.error('mp-tweaks: overrideList not found');
+		return;
+	}
+	container.innerHTML = "";
+
+	if (!Object.keys(overrides).length) {
+		container.textContent = "No saved overrides.";
+		return;
+	}
+
+	for (const projectId in overrides) {
+		const projectDiv = document.createElement('div');
+		projectDiv.className = "projectOverride";
+		projectDiv.innerHTML = `<h4>Project ${projectId}</h4>`;
+
+		for (const hash in overrides[projectId]) {
+			const override = overrides[projectId][hash];
+
+			const row = document.createElement('div');
+			row.className = "overrideRow";
+
+			const button = document.createElement('button');
+			button.textContent = override?.chartUiUrl?.split("/app/")[1] || hash.slice(0, 8);
+			button.onclick = () => {
+				APP.dataEditorHandleCatch(override.chartApiUrl, override.chartUiUrl, override.chartParams, override.chartData);
+			};
+
+			const del = document.createElement('button');
+			del.textContent = "✕";
+			del.title = "Delete this override";
+			del.style.marginLeft = "1em";
+			del.onclick = async () => {
+				// remove from array by index
+				const overridesArray = STORAGE.responseOverrides[projectId];
+
+				// find the index based on object identity (or a unique property like chartUiUrl)
+				const index = overridesArray.findIndex(item => item === override);
+
+				if (index !== -1) {
+					delete overridesArray[index]; // leaves undefined
+					STORAGE.responseOverrides[projectId] = overridesArray.filter(Boolean); // compact
+				}
+
+				// optionally remove empty project
+				if (STORAGE.responseOverrides[projectId].length === 0) {
+					delete STORAGE.responseOverrides[projectId];
+				}
+
+				await setStorage({ responseOverrides: STORAGE.responseOverrides });
+				renderChartOverrides();
+			};
+
+			row.appendChild(button);
+			row.appendChild(del);
+			projectDiv.appendChild(row);
+		}
+
+		container.appendChild(projectDiv);
+	}
+}
+
 function buildFlagButtons(object) {
 	let name = object.label;
 	let flag = object.flag;
 	let buttonId = object.label.replace(/\s/g, '');
 	let newButton = document.createElement('BUTTON');
-	newButton.setAttribute('class', 'button fa');
+	newButton.setAttribute('class', 'button fa featureFlagButtons');
 	newButton.setAttribute('id', buttonId);
 	newButton.appendChild(document.createTextNode(name.toUpperCase()));
 	newButton.onclick = async () => {
@@ -791,7 +1025,7 @@ function buildToolsButtons(buttonData) {
 	}
 
 	const newButton = document.createElement('BUTTON');
-	newButton.setAttribute('class', 'button fa');
+	newButton.setAttribute('class', 'button fa toolButton');
 	newButton.setAttribute('id', tool);
 	newButton.appendChild(document.createTextNode(tool.toUpperCase()));
 	newButton.onclick = async () => {
@@ -801,12 +1035,9 @@ function buildToolsButtons(buttonData) {
 	this.DOM.toolsWrapper.appendChild(newButton);
 }
 
-
-
-
 function buildDemoButtons(demo, data) {
 	let newButton = document.createElement('BUTTON');
-	newButton.setAttribute('class', 'button fa');
+	newButton.setAttribute('class', 'button fa demoSeqButton');
 	newButton.setAttribute('id', demo);
 	newButton.appendChild(document.createTextNode(demo.toUpperCase()));
 	newButton.onclick = async () => {
@@ -824,10 +1055,10 @@ function buildDemoButtons(demo, data) {
 				meta = {};
 			}
 
-			let url;
-			if (STORAGE.whoami.email) url = addQueryParams(URL, { user: STORAGE.whoami.email });
-			else url = URL;
-			messageWorker('open-tab', { url, ...meta });
+			// let url;
+			// if (STORAGE.whoami.email) url = addQueryParams(URL, { user: STORAGE.whoami.email });
+			// else url = URL;
+			messageWorker('open-tab', { url: URL, ...meta });
 		});
 	};
 	this.DOM.demoLinksWrapper.appendChild(newButton);
@@ -844,7 +1075,6 @@ function groupBy(objects, field = 'TITLE') {
 		return acc;
 	}, {});
 }
-
 
 function addQueryParams(url, params) {
 	if (url.includes('distinct_id=') && params.user && url.includes('3276012')) {
@@ -873,8 +1103,6 @@ function addQueryParams(url, params) {
 	// Reattach the hash if it exists
 	return hash ? `${updatedBaseUrl}#${hash}` : updatedBaseUrl;
 }
-
-
 
 function flipIntegers(obj) {
 	Object.keys(obj).forEach(key => {
@@ -928,6 +1156,33 @@ function getHeaders() {
 	return data;
 }
 
+function getAllHeaders() {
+	const data = [];
+	//always live query the DOM - capture ALL headers including empty ones for persistence
+	
+	/** @type {NodeListOf<HTMLInputElement>} */
+	const headerKeys = document.querySelectorAll('.headerKey');
+	/** @type {NodeListOf<HTMLInputElement>} */
+	const headerValues = document.querySelectorAll('.headerValue');
+	/** @type {NodeListOf<HTMLInputElement>} */
+	const checkPairs = document.querySelectorAll('.checkPair');
+
+	headerKeys.forEach((keyInput, index) => {
+		const key = keyInput.value.trim();
+		const value = headerValues[index] ? headerValues[index].value.trim() : '';
+		const enabled = checkPairs[index] ? checkPairs[index].checked : false;
+		
+		// Capture all headers, even empty ones for persistence
+		data.push({ 
+			key: key, 
+			value: value, 
+			enabled: enabled 
+		});
+	});
+
+	return data;
+}
+
 function addHeaderRow() {
 	/** @type {HTMLDivElement} */
 	const row = document.createElement('div');
@@ -947,10 +1202,12 @@ function addHeaderRow() {
 
 	row?.querySelector('.headerKey')?.addEventListener('input', () => {
 		messageWorker('store-headers', { headers: this.getHeaders() });
+		messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 	});
 
 	row?.querySelector('.headerValue')?.addEventListener('input', () => {
 		messageWorker('store-headers', { headers: this.getHeaders() });
+		messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 	});
 
 	row?.querySelector('.headerKey')?.addEventListener('blur', () => {
@@ -967,6 +1224,7 @@ function addHeaderRow() {
 		if (active.length === 0) this.DOM.modHeaderStatus.textContent = `DISABLED`;
 		if (active.length > 0) this.DOM.modHeaderStatus.textContent = `ENABLED`;
 		messageWorker('mod-headers', { headers: data });
+		messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 	});
 
 	row?.querySelector('.deletePair')?.addEventListener('click', () => {
@@ -978,11 +1236,11 @@ function addHeaderRow() {
 		messageWorker('mod-headers', { headers: data }).then(() => {
 			messageWorker('reload');
 		});
+		messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 	});
 
 
 }
-
 
 function filterObj(hash, test_function, keysOrValues = "value") {
 	let key, i;
@@ -1050,10 +1308,14 @@ function analytics() {
 			}));
 
 			for (const node of analyticsManifest) {
-				if (node.value.tagName === 'BUTTON') {
-					node.value.addEventListener('click', () => {
-						mixpanel.track(node.key);
-					});
+				if (node?.value) {
+					if (node?.value?.tagName) {
+						if (node.value.tagName === 'BUTTON') {
+							node.value.addEventListener('click', () => {
+								mixpanel.track(node.key);
+							});
+						}
+					}
 				}
 			}
 		},
@@ -1092,7 +1354,6 @@ function track(event, data = {}) {
 	}
 }
 
-
 function saveJSON(chartData = {}, fileName = `no fileName`) {
 	if (typeof chartData !== 'string') {
 		chartData = JSON.stringify(chartData, null, 2);
@@ -1103,10 +1364,9 @@ function saveJSON(chartData = {}, fileName = `no fileName`) {
 		type: "text/plain;charset=utf-8"
 	});
 
-	saveFile(chartBlob, `${fileName}.json`);
+	saveAs(chartBlob, `${fileName}.json`);
 	console.log('saved!');
 }
-
 
 async function captureCurrentTabId() {
 	return new Promise((resolve, reject) => {
@@ -1120,6 +1380,24 @@ async function captureCurrentTabId() {
 		});
 	});
 }
+
+async function storeBatchResponses(responses) {
+	//responses should have a minimum of 3 keys: projectId, oldData, newData
+	for (const response of responses) {
+		const { projectId, oldData, newData } = response;
+		if (!projectId || !oldData || !newData) {
+			console.error('mp-tweaks: response missing data', response);
+			continue;
+		}
+		const stored = await messageWorker('save-response', response);
+		console.log('mp-tweaks: stored response', stored);
+	}
+
+	console.log(`mp-tweaks: stored ${responses.length} responses`, responses);
+	return true;
+}
+
+
 
 try {
 	if (window) {

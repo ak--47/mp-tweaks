@@ -5,7 +5,7 @@ const EXTENSION_PATH = "./";
 
 let browser, EXTENSION_ID;
 
-const timeout = 100000;
+const timeout = 10_000; // 10 seconds timeout for each test
 
 beforeAll(async () => {
 	browser = await puppeteer.launch({

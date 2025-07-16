@@ -5,13 +5,14 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.34`;
+const APP_VERSION = `2.35`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
 	"featureFlag": { path: "./src/tweaks/featureFlag.js", code: "" },
 	"hideBanners": { path: "./src/tweaks/hideBanners.js", code: "" },
-	"renameTabs": { path: "./src/tweaks/renameTabs.js", code: "" }
+	"renameTabs": { path: "./src/tweaks/renameTabs.js", code: "" },
+	"hideBetas": { path: "./src/tweaks/hideBetas.js", code: "" },
 };
 
 /** @type {PersistentStorage} */
@@ -22,12 +23,14 @@ const STORAGE_MODEL = {
 	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
 	sessionReplay: { token: "", enabled: false, tabId: 0 },
 	verbose: true,
-	modHeaders: { headers: [], enabled: false },
+	modHeaders: { headers: [], enabled: false, savedHeaders: [] },
 	last_updated: Date.now(),
-	//these can be cached;
-	featureFlags: [],
-	demoLinks: []
-
+	responseOverrides: {},
+	externalDataCache: {
+		featureFlags: { data: [], timestamp: 0 },
+		demoLinks: { data: [], timestamp: 0 },
+		tools: { data: [], timestamp: 0 }
+	},
 };
 
 /*
@@ -39,27 +42,63 @@ RUNTIME
 let storageInitialized = false;
 async function init() {
 	if (storageInitialized) return STORAGE;
-	STORAGE = await getStorage();
-	if (!haveSameShape(STORAGE, STORAGE_MODEL) || STORAGE.version !== APP_VERSION) {
-		console.log("mp-tweaks: reset");
-		await resetStorageData();
-	}
 
-	if (!STORAGE?.whoami?.email || !STORAGE?.whoami?.email?.includes('@mixpanel.com')) {
-		console.log("mp-tweaks: getting user");
-		const user = await getUser();
-		if (user.email) {
-			STORAGE.whoami = user;
-			const { email, name } = user;
+	const raw = await getStorage();
 
+	// Preserve user config before any reset
+	const preserved = {
+		persistScripts: raw.persistScripts || [],
+		sessionReplay: raw.sessionReplay || { token: "", enabled: false, tabId: 0 },
+		modHeaders: raw.modHeaders || { headers: [], enabled: false, savedHeaders: [] },
+		responseOverrides: raw.responseOverrides || {},
+		whoami: raw.whoami || { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
+		externalDataCache: raw.externalDataCache || {
+			featureFlags: { data: [], timestamp: 0 },
+			demoLinks: { data: [], timestamp: 0 },
+			tools: { data: [], timestamp: 0 }
 		}
-		await setStorage(STORAGE);
+	};
+
+	let needsReset = false;
+
+	if (!haveSameShape(raw, STORAGE_MODEL)) {
+		console.log("mp-tweaks: storage shape mismatch — resetting");
+		needsReset = true;
+	} else if (raw.version !== APP_VERSION) {
+		console.log("mp-tweaks: version bump — resetting");
+		needsReset = true;
 	}
+
+	if (needsReset) {
+		const fresh = {
+			...structuredClone(STORAGE_MODEL), // <- ensures deep clone of template
+			...preserved,
+			version: APP_VERSION,
+			last_updated: Date.now()
+		};
+		await clearStorageData();
+		await setStorage(fresh);
+		STORAGE = fresh;
+	} else {
+		STORAGE = raw;
+	}
+
+	if (!STORAGE?.whoami?.email?.includes('@mixpanel.com')) {
+		console.log("mp-tweaks: fetching user...");
+		const user = await getUser();
+		if (user?.email) {
+			STORAGE.whoami = user;
+			await setStorage(STORAGE);
+		}
+	}
+
 	if (STORAGE?.whoami?.email) {
-		track = analytics(STORAGE?.whoami?.email, { component: "worker", name: STORAGE?.whoami?.name, $email: STORAGE?.whoami?.email, version: APP_VERSION });
-	}
-	else {
-		console.log("mp-tweaks: unknown user infos", STORAGE?.whoami);
+		track = analytics(STORAGE.whoami.email, {
+			component: "worker",
+			name: STORAGE.whoami.name,
+			$email: STORAGE.whoami.email,
+			version: APP_VERSION
+		});
 	}
 
 	storageInitialized = true;
@@ -86,14 +125,13 @@ chrome.runtime.onInstalled.addListener((details) => {
 	return;
 });
 
-chrome.runtime.onStartup.addListener(() => {
-	init();
+chrome.runtime.onStartup.addListener(async () => {
+	await init();
 });
 
 //open tabs
-chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
+chrome.tabs.onUpdated.addListener(async function (tabId, changeInfo, tab) {
 	if (changeInfo.status === 'complete') {
-
 		// mixpanel tweaks
 		if (tab.url && tab.url.includes('mixpanel.com')) {
 			console.log('mp-tweaks: Mixpanel page loaded');
@@ -102,8 +140,8 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 			if ((tab.url.includes('project') || tab.url.includes('report'))) {
 				track('worker: mp page', { url: tab.url });
 				console.log('mp-tweaks: project page loaded');
-				const userScripts = STORAGE?.persistScripts || [];
-				for (const script of userScripts) {
+				const { persistScripts = [] } = await getStorage();
+				for (const script of persistScripts) {
 					if (SCRIPTS[script]) {
 						const { path } = SCRIPTS[script];
 						if (path) {
@@ -115,6 +153,18 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
 						}
 					}
 				}
+			}
+
+			// report overrides
+			const { responseOverrides = {} } = await getStorage();
+			const project_id_index = tab.url.split('/').indexOf('project') + 1;
+			const project_id = tab.url.split('/')[project_id_index];
+			const overrides = responseOverrides[project_id];
+			if (overrides) {
+				console.log('mp-tweaks: injecting overrides', overrides);
+				runScript(injectOverride, [overrides], { world: 'MAIN' }, tab);
+				const catchFetchUri = chrome.runtime.getURL('/src/tweaks/catchFetch.js');
+				runScript(catchFetchWrapper, [{ target: 'override' }, catchFetchUri], { world: 'MAIN' }, tab);
 			}
 		}
 
@@ -157,9 +207,20 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 			sendResponse(result);
 		})
 		.catch(error => {
-			console.error('Error handling request:', error);
-			track('handleRequestError', { request, error: error.message });
-			sendResponse({ error: error.message });
+			const ignoreErrors = [
+				"Cannot access a chrome://",
+				"extensions gallery cannot be scripted",
+				"Frame with ID 0",
+				"Cannot access a chrome-extension://"
+			];
+			if (ignoreErrors.some(err => error.message.includes(err))) {
+				sendResponse({});
+			}
+			else {
+				console.error('Error handling request:', error);
+				track('handleRequestError', { request, error: error.message });
+				sendResponse({ error: error.message });
+			}
 		});
 
 	// Return true to keep the message channel open for the asynchronous response
@@ -181,16 +242,20 @@ async function handleRequest(request) {
 	const catchFetchUri = chrome.runtime.getURL('/src/tweaks/catchFetch.js');
 	const reqId = uid();
 	track('worker start', { action: request.action, data: request.data, reqId });
+
 	switch (request.action) {
 		case 'refresh-storage':
+			console.log('mp-tweaks: refreshing storage');
 			result = await refreshStorageData();
 			break;
 
 		case 'add-flag':
+			console.log('mp-tweaks: adding flag', request.data.flag);
 			result = await runScript(addFlag, [request.data.flag]);
 			break;
 
 		case 'remove-flags':
+			console.log('mp-tweaks: removing flags');
 			result = await runScript(removeFlags);
 			break;
 
@@ -199,6 +264,7 @@ async function handleRequest(request) {
 			break;
 
 		case 'make-project':
+			console.log('mp-tweaks: creating new project');
 			result = await makeProject();
 			if (result) {
 				const { url = "" } = result;
@@ -209,24 +275,99 @@ async function handleRequest(request) {
 			break;
 
 		case 'reset-user':
+			console.log('mp-tweaks: resetting user');
 			await resetStorageData();
 			result = (await init())?.whoami;
 			break;
 
+		case 'save-response':
+			console.log('mp-tweaks: saving API response');
+			let {
+				chartData = {},
+				chartUiUrl = "",
+				chartApiUrl = "",
+				chartParams = {},
+				chartOrigData = {},
+				projectId = "",
+				workspaceId = "",
+				oldData = null,
+				newData = null
+			} = request.data;
+			let project_id;
+			let workspace_id;
+			// api url format = /api/query/insights?workspace_id=3782804&project_id=3276012
+			// ui url format = /project/3276012/view/3782804/app/insights
+			if (chartApiUrl) {
+				const url = new URL(`https://www.mixpanel.com` + chartApiUrl);
+				const params = new URLSearchParams(url.search);
+				project_id = params.get('project_id');
+				workspace_id = params.get('workspace_id');
+			}
+
+			else if (chartUiUrl) {
+				const splitUrl = chartUiUrl.split('/');
+				const projectIdIndex = splitUrl.indexOf('project') + 1;
+				const workspaceIdIndex = splitUrl.indexOf('view') + 1;
+				project_id = splitUrl[projectIdIndex];
+				workspace_id = splitUrl[workspaceIdIndex];
+			}
+
+			if (projectId) project_id = projectId;
+			if (workspaceId) workspace_id = workspaceId;
+			if (oldData) chartOrigData = oldData;
+			if (newData) chartData = newData;
+			if (!STORAGE.responseOverrides[project_id]) STORAGE.responseOverrides[project_id] = [];
+
+			const data = {
+				chartData,
+				chartParams,
+				chartApiUrl,
+				chartUiUrl,
+				project_id,
+				workspace_id,
+				chartOrigData
+			};
+
+			STORAGE.responseOverrides[project_id].push(data);
+			await setStorage(STORAGE);
+			await refreshStorageData();
+			result = STORAGE.responseOverrides;
+			await updateIconToBeActive(true);
+			break;
+
+		case 'clear-responses':
+			console.log('mp-tweaks: clearing API responses');
+			STORAGE.responseOverrides = {};
+			await setStorage(STORAGE);
+			result = STORAGE.responseOverrides;
+			await updateIconToBeActive(false);
+			await runScript(reload);
+			break;
+
 		case 'catch-fetch':
-			const [scriptOutput] = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
-			const { target, data } = scriptOutput.result;
-			if (target === 'response') await messageExtension('caught-response', data);
-			if (target === 'request') await messageExtension('caught-request', data);
-			result = data;
+			console.log('mp-tweaks: catching fetch');
+			try {
+				const [scriptOutput] = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
+				const { target = null, data = null } = scriptOutput.result;
+				if (target === 'response') await messageExtension('caught-response', data);
+				if (target === 'request') await messageExtension('caught-request', data);
+				result = data;
+			}
+			catch (e) {
+				console.error('mp-tweaks: error catching fetch', e);
+				track('catch fetch error', { request, error: e });
+				result = {};
+			}
 			break;
 
 		case 'draw-chart':
+			console.log('mp-tweaks: drawing chart data');
 			await runScript(echo, [request.data, "ALTERED_MIXPANEL_DATA"]);
 			result = await runScript(catchFetchWrapper, [request.data, catchFetchUri]);
 			break;
 
 		case 'start-replay':
+			console.log('mp-tweaks: starting session replay');
 			await relaxCSP();
 			STORAGE.sessionReplay.enabled = true;
 			if (request?.data?.token && request?.data?.tabId) {
@@ -237,31 +378,34 @@ async function handleRequest(request) {
 			// var { token, tabId } = STORAGE.sessionReplay;
 			// if (token && tabId) result = await startSessionReplay(token, tabId);
 			await runScript(reload);
-			await updateIconBasedOnHeaders(STORAGE.sessionReplay.enabled);
+			await updateIconToBeActive(STORAGE.sessionReplay.enabled);
 			break;
 
 		case 'stop-replay':
+			console.log('mp-tweaks: stopping session replay');
 			await resetCSP();
 			STORAGE.sessionReplay.enabled = false;
 			result = false;
 			await setStorage(STORAGE);
 			await runScript(reload);
-			await updateIconBasedOnHeaders(STORAGE.sessionReplay.enabled);
+			await updateIconToBeActive(STORAGE.sessionReplay.enabled);
 			break;
 
 		//update headers and call updateHeaders
 		case 'mod-headers':
+			console.log('mp-tweaks: updating headers');
 			const headers = request.data.headers;
 			STORAGE.modHeaders.headers = headers;
 			if (headers.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
 			else STORAGE.modHeaders.enabled = false;
-			await updateIconBasedOnHeaders(STORAGE.modHeaders.enabled);
+			await updateIconToBeActive(STORAGE.modHeaders.enabled);
 			await setStorage(STORAGE);
 			result = await updateHeaders(headers);
 			break;
 
 		//update state of UI component but don't call updateHeaders
 		case 'store-headers':
+			console.log('mp-tweaks: storing headers');
 			const newHeaders = request.data.headers;
 			if (areEqual(newHeaders, STORAGE.modHeaders.headers)) {
 				console.log('mp-tweaks: headers unchanged');
@@ -274,30 +418,47 @@ async function handleRequest(request) {
 			result = await setStorage(STORAGE);
 			break;
 
+		case 'store-headers-text':
+			console.log('mp-tweaks: storing saved headers for persistence');
+			const savedHeaders = request.data.savedHeaders;
+			if (areEqual(savedHeaders, STORAGE.modHeaders.savedHeaders)) {
+				console.log('mp-tweaks: saved headers unchanged');
+				result = null;
+				break;
+			}
+			STORAGE.modHeaders.savedHeaders = savedHeaders;
+			result = await setStorage(STORAGE);
+			break;
+
 		case 'reset-headers':
+			console.log('mp-tweaks: resetting headers');
 			STORAGE.modHeaders.headers = [];
 			STORAGE.modHeaders.enabled = false;
-			await updateIconBasedOnHeaders(STORAGE.modHeaders.enabled);
+			STORAGE.modHeaders.savedHeaders = [];
+			await updateIconToBeActive(STORAGE.modHeaders.enabled);
 			await setStorage(STORAGE);
 			result = await removeHeaders();
 			await runScript(reload);
 			break;
 
 		case 'embed-sdk':
-			debugger;
+			console.log('mp-tweaks: embedding mixpanel SDK');
 			await injectMixpanelSDK(request?.data?.tab?.id || undefined);
 			break;
 
 		case 'nuke-cookies':
+			console.log('mp-tweaks: nuking cookies');
 			result = await nukeCookies();
 			break;
 
 		case 'reload':
+			console.log('mp-tweaks: reloading page');
 			await runScript(reload);
 			result = true;
 			break;
 
 		case 'open-tab':
+			console.log('mp-tweaks: opening new tab');
 			result = await openNewTab(request.data.url, true);
 			if (result.id && request.data) {
 				await runScript(injectToolTip, [request.data], { world: 'MAIN' }, result);
@@ -383,7 +544,8 @@ async function updateHeaders(headers = [{ "foo": "bar", enabled: false }]) {
 			},
 			condition: {
 				// use regexFilter with anchors so only the *exact* URLs match
-				regexFilter: "^(?:https://mixpanel\\.com/settings/account|https://mixpanel\\.com/oauth/access_token)$",
+				//regexFilter: "^(?:https://mixpanel\\.com/settings/account|https://mixpanel\\.com/oauth/access_token)$",
+				regexFilter: "^(?:https://mixpanel\\.com/settings/account|)$",
 				resourceTypes: [
 					"main_frame",
 					"sub_frame",
@@ -472,7 +634,7 @@ async function resetCSP() {
 /**
  * @param  {boolean} enabled
  */
-async function updateIconBasedOnHeaders(enabled) {
+async function updateIconToBeActive(enabled) {
 	if (typeof enabled !== 'boolean') throw new Error(`update icon expected boolean, got ${typeof enabled}`);
 	let iconPath = enabled ? "/icons/iconActive.png" : "icons/icon128.png";
 	iconPath = chrome.runtime.getURL(iconPath);
@@ -703,6 +865,12 @@ function catchFetchWrapper(data, url) {
 
 }
 
+function injectOverride(mockData) {
+	window.ALTERED_MIXPANEL_OVERRIDES = mockData || [];
+	console.log('mp-tweaks: overrides injected:', window.ALTERED_MIXPANEL_OVERRIDES);
+}
+
+
 function echo(data, key) {
 	console.log(`mp-tweaks: echoing data at key ${key}...`, data);
 	window[key] = data;
@@ -828,6 +996,61 @@ HELPERS
 */
 
 
+
+function stableStringify(obj) {
+	return JSON.stringify(obj, replacer, 2); // pretty-print with spacing
+}
+
+function replacer(key, value) {
+	if (value && typeof value === 'object' && !Array.isArray(value)) {
+		return Object.keys(value)
+			.sort()
+			.reduce((acc, k) => {
+				acc[k] = value[k];
+				return acc;
+			}, {});
+	}
+	return value;
+}
+
+function haveSameShape(obj1, obj2) {
+	// Check if both arguments are objects
+	if (typeof obj1 !== 'object' || typeof obj2 !== 'object' || obj1 === null || obj2 === null) {
+		return false;
+	}
+
+	const keys1 = Object.keys(obj1);
+	const keys2 = Object.keys(obj2);
+
+	// Check if both objects have the same number of keys
+	if (keys1.length !== keys2.length) {
+		return false;
+	}
+
+	// check if all those keys are the same
+	if (!keys1.every(key => keys2.includes(key))) {
+		return false;
+	}
+
+
+	// Check if all keys in obj1 are in obj2 and have the same shape
+	// for (let key of keys1) {
+	// 	if (!keys2.includes(key)) {
+	// 		return false;
+	// 	}
+	// 	if (typeof obj1[key] === 'object' && typeof obj2[key] === 'object') {
+	// 		if (!haveSameShape(obj1[key], obj2[key])) {
+	// 			return false;
+	// 		}
+	// 	} else if (typeof obj1[key] !== typeof obj2[key]) {
+	// 		// Check if the types of values are different
+	// 		return false;
+	// 	}
+	// }
+
+	return true;
+}
+
 function genName() {
 	var adjs = [
 		"autumn", "hidden", "bitter", "misty", "silent", "empty", "dry", "dark",
@@ -865,41 +1088,10 @@ function genName() {
 
 }
 
-function haveSameShape(obj1, obj2) {
-	// Check if both arguments are objects
-	if (typeof obj1 !== 'object' || typeof obj2 !== 'object' || obj1 === null || obj2 === null) {
-		return false;
-	}
-
-	const keys1 = Object.keys(obj1);
-	const keys2 = Object.keys(obj2);
-
-	// Check if both objects have the same number of keys
-	if (keys1.length !== keys2.length) {
-		return false;
-	}
-
-	// Check if all keys in obj1 are in obj2 and have the same shape
-	for (let key of keys1) {
-		if (!keys2.includes(key)) {
-			return false;
-		}
-		if (typeof obj1[key] === 'object' && typeof obj2[key] === 'object') {
-			if (!haveSameShape(obj1[key], obj2[key])) {
-				return false;
-			}
-		} else if (typeof obj1[key] !== typeof obj2[key]) {
-			// Check if the types of values are different
-			return false;
-		}
-	}
-
-	return true;
-}
 
 // turn objects into strings and compare; this isn't perfect but it's good enough for our purposes
 function areEqual(obj1, obj2) {
-	return JSON.stringify(obj1) === JSON.stringify(obj2);
+	return stableStringify(obj1) === stableStringify(obj2);
 }
 
 function sleep(ms) {
@@ -915,6 +1107,7 @@ STORAGE
 */
 
 async function resetStorageData() {
+	storageInitialized = false;
 	await clearStorageData();
 	STORAGE = STORAGE_MODEL;
 	await setStorage(STORAGE);
@@ -942,7 +1135,7 @@ async function getCurrentTab() {
 
 async function getStorage(keys = null, retries = 3, delay = 1000) {
 	const attempt = (resolve, reject, remainingRetries) => {
-		chrome.storage.sync.get(keys, (result) => {
+		chrome.storage.local.get(keys, (result) => {
 			if (chrome.runtime.lastError) {
 				if (remainingRetries > 0) {
 					setTimeout(() => attempt(resolve, reject, remainingRetries - 1), delay);
@@ -958,24 +1151,32 @@ async function getStorage(keys = null, retries = 3, delay = 1000) {
 	return new Promise((resolve, reject) => attempt(resolve, reject, retries));
 }
 
-
 async function setStorage(data) {
 	data.last_updated = Date.now();
 	return new Promise((resolve, reject) => {
-		chrome.storage.sync.set(data, () => {
+		chrome.storage.local.get(null, (existing) => {
 			if (chrome.runtime.lastError) {
 				reject(new Error(chrome.runtime.lastError));
-			} else {
-				STORAGE = data;
-				resolve(data);
+				return;
 			}
+
+			const merged = { ...existing, ...data };
+
+			chrome.storage.local.set(merged, () => {
+				if (chrome.runtime.lastError) {
+					reject(new Error(chrome.runtime.lastError));
+				} else {
+					STORAGE = merged;
+					resolve(merged);
+				}
+			});
 		});
 	});
 }
 
 async function clearStorageData() {
 	return new Promise((resolve, reject) => {
-		chrome.storage.sync.clear(() => {
+		chrome.storage.local.clear(() => {
 			if (chrome.runtime.lastError) {
 				reject(new Error(chrome.runtime.lastError.message));
 			} else {
@@ -1021,6 +1222,7 @@ async function getUser() {
 		}
 	}
 	catch (err) {
+		// @ts-ignore
 		if (err?.message?.includes('JSON')) {
 			console.log('mp-tweaks: user is not logged in');
 		}
@@ -1091,8 +1293,6 @@ function analytics(user_id, superProps = {}, token = "99526f575a41223fcbadd9efdd
 		}
 	};
 }
-
-
 
 function uid(length = 32) {
 	//https://stackoverflow.com/a/1349426/4808195
