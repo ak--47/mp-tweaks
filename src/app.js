@@ -521,10 +521,10 @@ function loadInterface() {
 
 		//load saved headers or use defaults
 		// @ts-ignore
-		const headersToLoad = modHeaders.savedHeaders && modHeaders.savedHeaders.length > 0
-			// @ts-ignore
-			? modHeaders.savedHeaders
-			: []; // Use empty array, let HTML defaults show
+		const savedHeaders = modHeaders.savedHeaders || [];
+		const hasValidSavedHeaders = savedHeaders.length > 0 && savedHeaders.some(h => h.key && h.key.trim() !== '');
+		
+		const headersToLoad = hasValidSavedHeaders ? savedHeaders : [];
 
 		//hack to deal with more than 3 headers...
 		if (headersToLoad.length > 3) {
@@ -535,8 +535,8 @@ function loadInterface() {
 			}
 		}
 
-		//load headers (either saved or active for backwards compatibility)
-		if (headersToLoad.length > 0) {
+		//load headers from savedHeaders (preferred) or fall back to active headers
+		if (hasValidSavedHeaders) {
 			headersToLoad.forEach((obj, index) => {
 				if (this.DOM.checkPairs[index] && this.DOM.headerKeys[index] && this.DOM.headerValues[index]) {
 					this.DOM.checkPairs[index].checked = obj.enabled || false;
@@ -544,17 +544,18 @@ function loadInterface() {
 					this.DOM.headerValues[index].value = obj.value || '';
 				}
 			});
-		} else if (modHeaders.headers.length > 0) {
+		} else if (modHeaders.headers && modHeaders.headers.length > 0) {
 			// Backwards compatibility: load from active headers if no savedHeaders
 			modHeaders.headers.forEach((obj, index) => {
 				if (this.DOM.checkPairs[index] && this.DOM.headerKeys[index] && this.DOM.headerValues[index]) {
 					const { enabled, ...header } = obj;
 					this.DOM.checkPairs[index].checked = enabled;
-					this.DOM.headerKeys[index].value = Object.keys(header)[0];
-					this.DOM.headerValues[index].value = Object.values(header)[0];
+					this.DOM.headerKeys[index].value = Object.keys(header)[0] || '';
+					this.DOM.headerValues[index].value = Object.values(header)[0] || '';
 				}
 			});
 		}
+		// If no saved or active headers, let HTML defaults show (x-imp, x-profile, x-assets-commit)
 
 		//version
 		this.DOM.versionLabel.textContent = `v${APP_VERSION}`;
@@ -805,7 +806,8 @@ function bindListeners() {
 			const active = data.filter(obj => obj.enabled);
 			if (active.length === 0) {
 				this.DOM.modHeaderStatus.textContent = `DISABLED`;
-				messageWorker('reset-headers');
+				// Just disable headers without clearing savedHeaders
+				messageWorker('mod-headers', { headers: [] });
 				setTimeout(() => { messageWorker('reload'); }, 250);
 			}
 
@@ -815,6 +817,8 @@ function bindListeners() {
 				setTimeout(() => { messageWorker('reload'); }, 250);
 
 			}
+			// Always save current state for persistence
+			messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 		});
 
 		// user input keys
