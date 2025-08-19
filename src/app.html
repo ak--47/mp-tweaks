@@ -10,37 +10,28 @@
 <body>
 	<div id="app">
 		<div id="mainPopup">
-			<h1>MP Tweaks</h1>
+			<h1><a href="https://www.notion.so/mxpnl/MP-Tweaks-8d698b871a254890ab703c7f35cc4fa0?source=copy_link" target="_blank" class="logo-link">
+				<lottie-player 
+					src="./assets/limited-seg.lottie"
+					background="transparent"
+					speed="3"
+					style="width: 42px; height: 42px; display: inline-block; vertical-align: middle; margin-right: 3px; opacity: 1;"
+					loop 
+					autoplay>
+				</lottie-player> MP Tweaks
+			</a></h1>
 		</div>
 
 		<!-- LOADER -->
 		<div id="loader">
-			<svg xmlns="http://www.w3.org/2000/svg"
-				viewBox="0 0 100 100"
-				preserveAspectRatio="xMidYMid"
-				class="lds-rolling"
-				style="background: none;">
-				<circle cx="50"
-					cy="50"
-					fill="none"
-					ng-attr-stroke="{{config.color}}"
-					ng-attr-stroke-width="{{config.width}}"
-					ng-attr-r="{{config.radius}}"
-					ng-attr-stroke-dasharray="{{config.dasharray}}"
-					stroke-width="4"
-					r="30"
-					stroke-dasharray="141.37166941154067 49.12388980384689"
-					transform="rotate(72.4232 50 50)">
-					<animateTransform attributeName="transform"
-						type="rotate"
-						calcMode="linear"
-						values="0 50 50;360 50 50"
-						keyTimes="0;1"
-						dur="1.9s"
-						begin="0s"
-						repeatCount="indefinite"></animateTransform>
-				</circle>
-			</svg>
+			<lottie-player 
+				src="./assets/limited-seg.lottie"
+				background="transparent"
+				speed="1"
+				style="width: 175px; height: 175px;"
+				loop 
+				autoplay>
+			</lottie-player>
 		</div>
 
 		<!-- REST OF APP -->
@@ -50,9 +41,9 @@
 			<!-- MOD HEADER -->
 			<div id="modHeader"
 				class="section">
-				<h2 class="lower">Mod Header</h2>
-				<p class="small">inject <b>custom headers</b> into <b>all requests</b> for <b>all tabs</b> &emsp; &emsp;
-					&emsp; <span id="modHeaderLabel"
+				<h2 class="lower">&#128736;&#65039; Mod Header</h2>
+				<p class="small">inject <b>custom headers</b> into <span class="highlight">all requests for all mixpanel.com tabs</span></p>
+				<p class="status-line"><span id="modHeaderLabel"
 						class="statusText">mod header is: <b>FOO</b></span></p>
 				<div class="controls"
 					id="userHeaders">
@@ -75,15 +66,18 @@
 							type="text" /> : <input class="headerValue"
 							type="text" /> <button class="deletePair">-</button> <br /></div>
 				</div>
-				&emsp; &emsp;<button id="addHeader">+</button>&emsp; &emsp; &emsp; &emsp; &emsp;<button
-					id="saveHeaders">refresh</button> : <button id="clearHeaders">clear</button><br />
+				<div class="button-input-group">
+					<button class="button" id="addHeader">+ Add Header</button>
+					<button class="button" id="saveHeaders">Refresh</button>
+					<button class="button remove" id="clearHeaders">Clear All</button>
+				</div>
 			</div>
 
 			<!-- DEMO SEQUENCES -->
 			<div id="demoLinks"
 				class="section">
-				<h2 class="lower">Demo Sequences</h2>
-				<p class="small">click each button below for easy <b>one-click demo setup</b></p>
+				<h2 class="lower">&#127916; Demo Sequences</h2>
+				<p class="small">click each button below for easy <b>one-click demo setup</b> on <span class="highlight">active mixpanel.com tab</span></p>
 				<div class="buttons">
 				</div>
 				<p class="addMore"><a
@@ -94,8 +88,8 @@
 			<!-- DATA TOOLS -->
 			<div id="dataTools"
 				class="section">
-				<h2 class="lower">Apps + Tools</h2>
-				<p class="small">some <b>useful tools</b> for <b>dummy data creation</b> and <b>asset management</b></p>
+				<h2 class="lower">&#129302; Apps + Tools</h2>
+				<p class="small">some <b>useful tools</b> for <span class="highlight">dummy data creation</span> and <span class="highlight">asset management</span></p>
 				<div class="buttons"
 					id="toolsWrapper">
 					<!-- injected on init -->
@@ -108,45 +102,41 @@
 			<!-- CREATE PROJECTS -->
 			<div id="createProject"
 				class="section">
-				<h2>Project Creator</h2>
-				<p class="small">make a <b>new project</b> in <b>your personal org</b> &emsp; &emsp; &emsp; <span
+				<h2>&#128035; Project Creator</h2>
+				<p class="small">make a <b>new project</b> in <span class="highlight">your personal org</span><br /><span
 						id="orgLabel"
-						class="statusText hide">connected org: <b>FOO</b></span></p>
-				<button class="button fa"
-					id="makeProject">MAKE PROJECT</button>
-				<button class="button fa"
-					id="resetUser">REAUTH</button>
-				<svg id="makeProjectSpinner"
-					class="hidden"
-					width="50px"
-					height="50px"
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 100 100"
-					preserveAspectRatio="xMidYMid"
-					class="lds-rolling"
-					style="background: none;">
-					<circle cx="50"
-						cy="50"
-						fill="none"
-						ng-attr-stroke="{{config.color}}"
-						ng-attr-stroke-width="{{config.width}}"
-						ng-attr-r="{{config.radius}}"
-						ng-attr-stroke-dasharray="{{config.dasharray}}"
-						stroke="#DF7800"
-						stroke-width="4"
-						r="30"
-						stroke-dasharray="141.37166941154067 49.12388980384689"
-						transform="rotate(72.4232 50 50)">
-						<animateTransform attributeName="transform"
-							type="rotate"
-							calcMode="linear"
-							values="0 50 50;360 50 50"
-							keyTimes="0;1"
-							dur="1.9s"
-							begin="0s"
-							repeatCount="indefinite"></animateTransform>
-					</circle>
-				</svg>
+						class="statusText hidden">connected org: <b>FOO</b></span></p>
+				<div class="button-input-group">
+					<button class="button" id="makeProject">Make Project</button>
+					<button class="button" id="resetUser">Reauth</button>
+					<svg id="makeProjectSpinner"
+						class="hidden"
+						width="24px"
+						height="24px"
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 100 100"
+						preserveAspectRatio="xMidYMid"
+						style="background: none;">
+						<circle cx="50"
+							cy="50"
+							fill="none"
+							stroke="#DF7800"
+							stroke-width="4"
+							r="30"
+							stroke-dasharray="141.37166941154067 49.12388980384689"
+							transform="rotate(72.4232 50 50)">
+							<animateTransform attributeName="transform"
+								type="rotate"
+								calcMode="linear"
+								values="0 50 50;360 50 50"
+								keyTimes="0;1"
+								dur="1.9s"
+								begin="0s"
+								repeatCount="indefinite"></animateTransform>
+						</circle>
+					</svg>
+					<span id="projectStatus"></span>
+				</div>
 
 				<div id="projectDetails">
 					<p><textarea class="hidden"
@@ -162,8 +152,8 @@
 			<!-- SESSION REPLAY -->
 			<div id="sessionReplay"
 				class="section">
-				<h2 class="lower">Session Replay / Autocapture</h2>
-				<p class="small">records + autocaptures your screen in the <b>current tab</b>&emsp; &emsp; &emsp; <span
+				<h2 class="lower">&#128248; Session Replay / Autocapture</h2>
+				<p class="small">autocaptures your screen in the <span class="highlight">current tab (any site)</span>&emsp; &emsp; &emsp; <span
 						id="sessionReplayLabel"
 						class="statusText hidden">Recording is: <b>FOO</b></span></p>
 				<input class="tokenEntry"
@@ -171,10 +161,8 @@
 					id="sessionReplayToken"
 					placeholder="Mixpanel Project Token" />
 				<div class="button-input-group">
-					<button class="button fa"
-						id="startReplay">START CAPTURE</button>
-					<button class="button fa"
-						id="stopReplay">STOP CAPTURE</button>
+					<button class="button" id="startReplay">Start Capture</button>
+					<button class="button" id="stopReplay">Stop Capture</button>
 				</div>
 			</div>
 
@@ -182,22 +170,18 @@
 			<div style="display: none;"
 				id="dataEditor"
 				class="section">
-				<h2>Chart Editor / API Query Builder</h2>
+				<h2>&#128202; Chart Editor / API Query Builder</h2>
 				<p class="small"><b>change the data</b> for a chart in the <b>active tab</b><br />
 					or <b>construct an query API payload</b> for the chart in the <b>active tab</b></p>
 				<div class="controls">
-					<button class="button fa"
-						id="fetchChartData">FETCH CHART DATA</button>
-					<button class="button fa"
-						id="buildChartPayload">CONSTRUCT API QUERY</button>
-					<button class="button fa hidden"
-						id="postChartData">REDRAW CHART</button>
-					<button class="button fa hidden"
-						id="randomize">RANDOMIZE</button>
-					<button class="button fa hidden"
-						id="saveChartData">SAVE</button>
-					<button class="button fa"
-						id="resetDataEditor">RESET</button>
+					<div class="buttons">
+						<button class="button" id="fetchChartData">Fetch Chart Data</button>
+						<button class="button" id="buildChartPayload">Construct API Query</button>
+						<button class="button hidden" id="postChartData">Redraw Chart</button>
+						<button class="button hidden" id="randomize">Randomize</button>
+						<button class="button hidden" id="saveChartData">Save</button>
+						<button class="button" id="resetDataEditor">Reset</button>
+					</div>
 					<p class="hidden"
 						id="queryMetadata">
 						<span>metadata</span>
@@ -238,12 +222,11 @@
 			<!-- FEATURE FLAGS -->
 			<div id="perTab"
 				class="section">
-				<h2 class="lower">Feature Flags</h2>
-				<p class="small">inject <b>feature flags</b> into the <b>active tab</b></p>
+				<h2 class="lower">&#128681; Feature Flags</h2>
+				<p class="small">inject <b>feature flags</b> into the <span class="highlight">active mixpanel.com tab</span></p>
 				<div class="buttons">
 				</div>
-				<button class="button fa remove"
-					id="removeAll">UNFLAG</button>
+				<button class="button remove" id="removeAll">Remove All Flags</button>
 				<p class="addMore"><a
 						href="https://docs.google.com/spreadsheets/d/1NPOk9MpGrvA8ruFVv2AToMnL_Yt_Mz8jN52vE89MQ1U/edit#gid=0&range=A1"
 						target="_blank">add a new feature flag</a></p>
@@ -254,8 +237,8 @@
 			<div id="persistentOptions"
 				class="section">
 				<form>
-					<h2>Persistent Options</h2>
-					<p class="small">always active on <b>all mixpanel tabs</b> when enabled</p>
+					<h2>&#128204; Persistent Options</h2>
+					<p class="small">always active on <span class="highlight">all mixpanel tabs</span> when enabled</p>
 
 					<div class="controls">
 
@@ -301,13 +284,11 @@
 			<!-- ODDS N ENDS -->
 			<div id="oddsEnds"
 				class="section">
-				<h2 class="lower">Odds and Ends</h2>
-				<p class="small">some <b>random stuff</b> that is helpful
+				<h2 class="lower">&#127922; Odds and Ends</h2>
+				<p class="small">some <b>random stuff</b> that is helpful for <span class="highlight">development and testing</span></p>
 				<div class="button-input-group">
-					<button class="button fa"
-						id="nukeCookies">NUKE COOKIES</button>
-					<button class="button fa"
-						id="embedSDK">EMBED SDK</button>
+					<button class="button" id="nukeCookies">Nuke Cookies</button>
+					<button class="button" id="embedSDK">Embed SDK</button>
 				</div>
 			</div>
 
@@ -329,6 +310,7 @@
 	</div>
 
 	<!-- SCRIPTS -->
+	<script src="./lib/lottie-player.js"></script>
 	<script src="./lib/saveFile.js"></script>
 	<script src="./lib/papaparse.js"></script>
 	<script src="./lib/mixpanel-wrapper.js"></script>

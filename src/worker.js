@@ -5,7 +5,7 @@ let cachedFlags = null;
 
 let track = noop;
 
-const APP_VERSION = `2.35`;
+const APP_VERSION = `2.40`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -396,7 +396,7 @@ async function handleRequest(request) {
 			console.log('mp-tweaks: updating headers');
 			const headers = request.data.headers;
 			STORAGE.modHeaders.headers = headers;
-			if (headers.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
+			if (headers.length > 0 && headers.some(h => h.enabled)) STORAGE.modHeaders.enabled = true;
 			else STORAGE.modHeaders.enabled = false;
 			await updateIconToBeActive(STORAGE.modHeaders.enabled);
 			await setStorage(STORAGE);

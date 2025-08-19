@@ -4,6 +4,20 @@ module.exports = {
   testMatch: [
     '**/tests/**/*.test.js'
   ],
+  projects: [
+    {
+      displayName: 'e2e',
+      testEnvironment: 'node',
+      testMatch: ['**/tests/e2e.test.js'],
+      setupFilesAfterEnv: ['<rootDir>/tests/setup.js']
+    },
+    {
+      displayName: 'integration',
+      testEnvironment: 'node',
+      testMatch: ['**/tests/integration.test.js'],
+      setupFilesAfterEnv: ['<rootDir>/tests/setup.js']
+    },
+  ],
   testTimeout: 30000,
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1'

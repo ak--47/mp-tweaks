@@ -4,6 +4,19 @@ MP Tweaks is a chrome extension designed to assist mixpanel employees in testing
 
 It can be found (unlisted) on the chrome web story here: **http://bit.ly/mpTweaks**
 
+## 🧪 Testing
+
+### Running Tests
+- `npm test` - Run all tests in headless mode (no browser window)
+- `npm run test:debug` - Run all tests with visible browser (for debugging)
+- `npm run test:e2e-debug` - Run only e2e tests with visible browser
+
+### Test Modes
+- **Headless Mode** (default): Tests run invisibly in the background for faster CI/development
+- **Debug Mode**: Browser window opens with DevTools, slower execution for easier debugging
+
+Set `DEBUG=true` environment variable or use debug scripts to enable visible browser testing.
+
 ### 🚀 Feature Flags
 - **Inject Feature Flags**: Inject feature flags into the active tab to test different functionalities dynamically.
 - [Add your own feature flags](https://docs.google.com/spreadsheets/d/1NPOk9MpGrvA8ruFVv2AToMnL_Yt_Mz8jN52vE89MQ1U/edit#gid=0&range=A1)

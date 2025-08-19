@@ -1,15 +1,17 @@
 {
   "name": "mptweaks",
-  "version": "2.35",
+  "version": "2.40",
   "description": "a chrome extension to tweak mixpanel",
   "main": "index.js",
   "scripts": {
     "build": "node package-extension.js",
     "test": "jest",
-    "test:unit": "jest tests/unit",
-    "test:integration": "jest tests/integration",
     "test:e2e": "jest e2e.test.js",
     "test:e2e-real": "jest tests/e2e",
+    "test:e2e-debug": "DEBUG=true jest tests/e2e.test.js",
+    "test:integration": "jest tests/integration.test.js",
+    "test:integration-debug": "DEBUG=true jest tests/integration.test.js",
+    "test:debug": "DEBUG=true jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:ci": "jest --ci --coverage --watchAll=false"

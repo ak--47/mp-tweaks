@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.35`;
+const APP_VERSION = `2.40`;
 const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
@@ -14,7 +14,7 @@ const APP = {
 		{ name: 'featureFlags', url: FEATURE_FLAG_URI },
 		{ name: 'demoLinks', url: DEMO_GROUPS_URI },
 		{ name: 'tools', url: TOOLS_URI }
-	],	
+	],
 	DOM: {},
 	cacheDOM,
 	bindListeners,
@@ -37,7 +37,7 @@ const APP = {
 	getHeaders,
 	addQueryParams,
 	storeBatchResponses,
-	init: function () {
+	init: function (allowCache = true) {
 		this.cacheDOM();
 		this.getStorage().then(() => {
 			this.bindListeners();
@@ -47,7 +47,7 @@ const APP = {
 
 			// fetch data from google sheets, then hide loader and build UI buttons
 			const sources = this.dataSources;
-			Promise.all(sources.map(source => this.fetchCSV(source.url, source.name)))
+			Promise.all(sources.map(source => this.fetchCSV(source.url, source.name, allowCache)))
 				.then((data) => {
 					const [flags, demoLinks, tools] = data;
 					this.hideLoader();
@@ -169,11 +169,13 @@ async function getStaleCache(name) {
 	}
 }
 
-async function fetchCSV(url, name) {
+async function fetchCSV(url, name, allowCache = true) {
 	// First, check if we have fresh cached data
-	const cachedData = await getCachedData(name);
-	if (cachedData) {
-		return cachedData;
+	if (allowCache) {
+		const cachedData = await getCachedData(name);
+		if (cachedData) {
+			return cachedData;
+		}
 	}
 
 	// No fresh cache, try to fetch from network
@@ -387,7 +389,6 @@ function queryBuilderHandleCatch(data) {
 
 function hideLoader() {
 	this.DOM.loader.classList.add('hidden');
-	this.DOM.loader.style.display = 'none';
 	this.DOM.main.classList.remove('hidden');
 }
 
@@ -519,10 +520,12 @@ function loadInterface() {
 		else this.DOM.modHeaderStatus.textContent = `DISABLED`;
 
 		//load saved headers or use defaults
-		const headersToLoad = modHeaders.savedHeaders && modHeaders.savedHeaders.length > 0 
-			? modHeaders.savedHeaders 
-			: []; // Use empty array, let HTML defaults show
+		// @ts-ignore
+		const savedHeaders = modHeaders.savedHeaders || [];
+		const hasValidSavedHeaders = savedHeaders.length > 0 && savedHeaders.some(h => h.key && h.key.trim() !== '');
 		
+		const headersToLoad = hasValidSavedHeaders ? savedHeaders : [];
+
 		//hack to deal with more than 3 headers...
 		if (headersToLoad.length > 3) {
 			const numClicks = headersToLoad.length - 3;
@@ -532,8 +535,8 @@ function loadInterface() {
 			}
 		}
 
-		//load headers (either saved or active for backwards compatibility)
-		if (headersToLoad.length > 0) {
+		//load headers from savedHeaders (preferred) or fall back to active headers
+		if (hasValidSavedHeaders) {
 			headersToLoad.forEach((obj, index) => {
 				if (this.DOM.checkPairs[index] && this.DOM.headerKeys[index] && this.DOM.headerValues[index]) {
 					this.DOM.checkPairs[index].checked = obj.enabled || false;
@@ -541,17 +544,18 @@ function loadInterface() {
 					this.DOM.headerValues[index].value = obj.value || '';
 				}
 			});
-		} else if (modHeaders.headers.length > 0) {
+		} else if (modHeaders.headers && modHeaders.headers.length > 0) {
 			// Backwards compatibility: load from active headers if no savedHeaders
 			modHeaders.headers.forEach((obj, index) => {
 				if (this.DOM.checkPairs[index] && this.DOM.headerKeys[index] && this.DOM.headerValues[index]) {
 					const { enabled, ...header } = obj;
 					this.DOM.checkPairs[index].checked = enabled;
-					this.DOM.headerKeys[index].value = Object.keys(header)[0];
-					this.DOM.headerValues[index].value = Object.values(header)[0];
+					this.DOM.headerKeys[index].value = Object.keys(header)[0] || '';
+					this.DOM.headerValues[index].value = Object.values(header)[0] || '';
 				}
 			});
 		}
+		// If no saved or active headers, let HTML defaults show (x-imp, x-profile, x-assets-commit)
 
 		//version
 		this.DOM.versionLabel.textContent = `v${APP_VERSION}`;
@@ -802,7 +806,8 @@ function bindListeners() {
 			const active = data.filter(obj => obj.enabled);
 			if (active.length === 0) {
 				this.DOM.modHeaderStatus.textContent = `DISABLED`;
-				messageWorker('reset-headers');
+				// Just disable headers without clearing savedHeaders
+				messageWorker('mod-headers', { headers: [] });
 				setTimeout(() => { messageWorker('reload'); }, 250);
 			}
 
@@ -812,6 +817,8 @@ function bindListeners() {
 				setTimeout(() => { messageWorker('reload'); }, 250);
 
 			}
+			// Always save current state for persistence
+			messageWorker('store-headers-text', { savedHeaders: getAllHeaders() });
 		});
 
 		// user input keys
@@ -891,7 +898,7 @@ function bindListeners() {
 			// Remove all additional rows first (keep only the first 3)
 			const additionalRows = Array.from(this.DOM.userHeaders.children).slice(3);
 			additionalRows.forEach(row => row.remove());
-			
+
 			// Reset the first 3 rows to default state
 			const defaultHeaders = ['x-imp', 'x-profile', 'x-assets-commit'];
 			this.DOM.headerKeys.forEach((node, index) => {
@@ -901,10 +908,10 @@ function bindListeners() {
 			});
 			this.DOM.headerValues.forEach(node => node.value = "");
 			this.DOM.checkPairs.forEach(node => node.checked = false);
-			
+
 			// Update status
 			this.DOM.modHeaderStatus.textContent = `DISABLED`;
-			
+
 			// Clear all storage and turn off headers
 			messageWorker('reset-headers');
 			// Clear saved headers to show defaults next time
@@ -955,8 +962,10 @@ function renderChartOverrides() {
 			row.className = "overrideRow";
 
 			const button = document.createElement('button');
+			// @ts-ignore
 			button.textContent = override?.chartUiUrl?.split("/app/")[1] || hash.slice(0, 8);
 			button.onclick = () => {
+				// @ts-ignore
 				APP.dataEditorHandleCatch(override.chartApiUrl, override.chartUiUrl, override.chartParams, override.chartData);
 			};
 
@@ -1001,7 +1010,7 @@ function buildFlagButtons(object) {
 	let newButton = document.createElement('BUTTON');
 	newButton.setAttribute('class', 'button fa featureFlagButtons');
 	newButton.setAttribute('id', buttonId);
-	newButton.appendChild(document.createTextNode(name.toUpperCase()));
+	newButton.appendChild(document.createTextNode(name.toLowerCase()));
 	newButton.onclick = async () => {
 		track('flag button', { flag });
 		messageWorker('add-flag', { flag });
@@ -1046,13 +1055,15 @@ function buildDemoButtons(demo, data) {
 		data.forEach(async (obj) => {
 
 			const { URL } = obj;
-			let meta;
-			try {
-				meta = JSON.parse(obj.META);
-			}
+			let meta = {};
+			if (obj.META) {
+				try {
+					meta = JSON.parse(obj.META);
+				}
 
-			catch (e) {
-				meta = {};
+				catch (e) {
+					meta = {};
+				}
 			}
 
 			// let url;
@@ -1159,7 +1170,7 @@ function getHeaders() {
 function getAllHeaders() {
 	const data = [];
 	//always live query the DOM - capture ALL headers including empty ones for persistence
-	
+
 	/** @type {NodeListOf<HTMLInputElement>} */
 	const headerKeys = document.querySelectorAll('.headerKey');
 	/** @type {NodeListOf<HTMLInputElement>} */
@@ -1171,12 +1182,12 @@ function getAllHeaders() {
 		const key = keyInput.value.trim();
 		const value = headerValues[index] ? headerValues[index].value.trim() : '';
 		const enabled = checkPairs[index] ? checkPairs[index].checked : false;
-		
+
 		// Capture all headers, even empty ones for persistence
-		data.push({ 
-			key: key, 
-			value: value, 
-			enabled: enabled 
+		data.push({
+			key: key,
+			value: value,
+			enabled: enabled
 		});
 	});
 
@@ -1403,6 +1414,16 @@ try {
 	if (window) {
 		// @ts-ignore
 		window.APP = APP;
+		// @ts-ignore
+		window.RELOAD = function rebuildApp() {
+			try {
+				console.log('mp-tweaks: reloading...');
+				// @ts-ignore
+				window.APP.init(false);
+			} catch (error) {
+				console.error('mp-tweaks: failed to reload', error);
+			}
+		};
 	}
 }
 
