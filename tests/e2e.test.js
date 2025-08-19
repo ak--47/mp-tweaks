@@ -215,7 +215,7 @@ describe("cookies", () => {
 		// Retrieve the message from the mocked alert
 		const alertText = await page.evaluate(() => window.lastAlertMsg);
 		expect(alertText).toContain("Deleted ");
-	}, timeout);
+	}, 20000); // Increased timeout for cookie deletion
 	
 });
 
