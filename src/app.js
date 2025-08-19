@@ -14,7 +14,7 @@ const APP = {
 		{ name: 'featureFlags', url: FEATURE_FLAG_URI },
 		{ name: 'demoLinks', url: DEMO_GROUPS_URI },
 		{ name: 'tools', url: TOOLS_URI }
-	],	
+	],
 	DOM: {},
 	cacheDOM,
 	bindListeners,
@@ -37,7 +37,7 @@ const APP = {
 	getHeaders,
 	addQueryParams,
 	storeBatchResponses,
-	init: function () {
+	init: function (allowCache = true) {
 		this.cacheDOM();
 		this.getStorage().then(() => {
 			this.bindListeners();
@@ -47,7 +47,7 @@ const APP = {
 
 			// fetch data from google sheets, then hide loader and build UI buttons
 			const sources = this.dataSources;
-			Promise.all(sources.map(source => this.fetchCSV(source.url, source.name)))
+			Promise.all(sources.map(source => this.fetchCSV(source.url, source.name, allowCache)))
 				.then((data) => {
 					const [flags, demoLinks, tools] = data;
 					this.hideLoader();
@@ -169,11 +169,13 @@ async function getStaleCache(name) {
 	}
 }
 
-async function fetchCSV(url, name) {
+async function fetchCSV(url, name, allowCache = true) {
 	// First, check if we have fresh cached data
-	const cachedData = await getCachedData(name);
-	if (cachedData) {
-		return cachedData;
+	if (allowCache) {
+		const cachedData = await getCachedData(name);
+		if (cachedData) {
+			return cachedData;
+		}
 	}
 
 	// No fresh cache, try to fetch from network
@@ -519,10 +521,12 @@ function loadInterface() {
 		else this.DOM.modHeaderStatus.textContent = `DISABLED`;
 
 		//load saved headers or use defaults
-		const headersToLoad = modHeaders.savedHeaders && modHeaders.savedHeaders.length > 0 
-			? modHeaders.savedHeaders 
+		// @ts-ignore
+		const headersToLoad = modHeaders.savedHeaders && modHeaders.savedHeaders.length > 0
+			// @ts-ignore
+			? modHeaders.savedHeaders
 			: []; // Use empty array, let HTML defaults show
-		
+
 		//hack to deal with more than 3 headers...
 		if (headersToLoad.length > 3) {
 			const numClicks = headersToLoad.length - 3;
@@ -891,7 +895,7 @@ function bindListeners() {
 			// Remove all additional rows first (keep only the first 3)
 			const additionalRows = Array.from(this.DOM.userHeaders.children).slice(3);
 			additionalRows.forEach(row => row.remove());
-			
+
 			// Reset the first 3 rows to default state
 			const defaultHeaders = ['x-imp', 'x-profile', 'x-assets-commit'];
 			this.DOM.headerKeys.forEach((node, index) => {
@@ -901,10 +905,10 @@ function bindListeners() {
 			});
 			this.DOM.headerValues.forEach(node => node.value = "");
 			this.DOM.checkPairs.forEach(node => node.checked = false);
-			
+
 			// Update status
 			this.DOM.modHeaderStatus.textContent = `DISABLED`;
-			
+
 			// Clear all storage and turn off headers
 			messageWorker('reset-headers');
 			// Clear saved headers to show defaults next time
@@ -955,8 +959,10 @@ function renderChartOverrides() {
 			row.className = "overrideRow";
 
 			const button = document.createElement('button');
+			// @ts-ignore
 			button.textContent = override?.chartUiUrl?.split("/app/")[1] || hash.slice(0, 8);
 			button.onclick = () => {
+				// @ts-ignore
 				APP.dataEditorHandleCatch(override.chartApiUrl, override.chartUiUrl, override.chartParams, override.chartData);
 			};
 
@@ -1046,13 +1052,15 @@ function buildDemoButtons(demo, data) {
 		data.forEach(async (obj) => {
 
 			const { URL } = obj;
-			let meta;
-			try {
-				meta = JSON.parse(obj.META);
-			}
+			let meta = {};
+			if (obj.META) {
+				try {
+					meta = JSON.parse(obj.META);
+				}
 
-			catch (e) {
-				meta = {};
+				catch (e) {
+					meta = {};
+				}
 			}
 
 			// let url;
@@ -1159,7 +1167,7 @@ function getHeaders() {
 function getAllHeaders() {
 	const data = [];
 	//always live query the DOM - capture ALL headers including empty ones for persistence
-	
+
 	/** @type {NodeListOf<HTMLInputElement>} */
 	const headerKeys = document.querySelectorAll('.headerKey');
 	/** @type {NodeListOf<HTMLInputElement>} */
@@ -1171,12 +1179,12 @@ function getAllHeaders() {
 		const key = keyInput.value.trim();
 		const value = headerValues[index] ? headerValues[index].value.trim() : '';
 		const enabled = checkPairs[index] ? checkPairs[index].checked : false;
-		
+
 		// Capture all headers, even empty ones for persistence
-		data.push({ 
-			key: key, 
-			value: value, 
-			enabled: enabled 
+		data.push({
+			key: key,
+			value: value,
+			enabled: enabled
 		});
 	});
 
@@ -1403,6 +1411,16 @@ try {
 	if (window) {
 		// @ts-ignore
 		window.APP = APP;
+		// @ts-ignore
+		window.RELOAD = function rebuildApp() {
+			try {
+				console.log('mp-tweaks: reloading...');
+				// @ts-ignore
+				window.APP.init(false);
+			} catch (error) {
+				console.error('mp-tweaks: failed to reload', error);
+			}
+		};
 	}
 }
 
