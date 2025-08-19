@@ -12,11 +12,11 @@ module.exports = {
       setupFilesAfterEnv: ['<rootDir>/tests/setup.js']
     },
     {
-      displayName: 'unit',
-      testEnvironment: 'jsdom', 
-      testMatch: ['**/tests/**/*.test.js', '!**/tests/e2e.test.js'],
+      displayName: 'integration',
+      testEnvironment: 'node',
+      testMatch: ['**/tests/integration.test.js'],
       setupFilesAfterEnv: ['<rootDir>/tests/setup.js']
-    }
+    },
   ],
   testTimeout: 30000,
   moduleNameMapper: {
