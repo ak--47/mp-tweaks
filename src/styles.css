@@ -31,6 +31,7 @@
   --font-mono: "Monaco", "Menlo", "Ubuntu Mono", monospace;
   --font-sans: "Apercu Pro", "Helvetica Neue", Helvetica, Tahoma, Geneva, Arial, sans-serif;
   --font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  --font-normal: "Arial", "Helvetica Neue", Helvetica, Tahoma, Geneva, Arial, sans-serif;
 
   /* Legacy variables for compatibility */
   --main-bg-color: var(--bg-primary);
@@ -105,13 +106,22 @@ h1 {
   width: 100%;
   flex-shrink: 0;
 }
+div {
+	font-family: var(--font-sans);
+}
+h2 {
+	font-family: var(--font-sans);
+}
+p {
+	font-family: var(--font-normal);
+}
 
 /* Section Cards */
 .section {
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   border-radius: 8px;
-  padding: 16px;
+  padding: 7px;
   box-shadow: var(--shadow-sm);
 }
 
