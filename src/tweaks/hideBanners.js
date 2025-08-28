@@ -5,6 +5,7 @@ var bannerCount = 0;
 var maximumExecutions = 25;
 var initialDelay = 100;
 var delayIncrement = 108;
+var bannersKilled = 0;
 
 
 if (!window.__mpTweaks_bannerKillerRunning) {
@@ -22,6 +23,7 @@ if (!window.__mpTweaks_bannerKillerRunning) {
 				if (banner.style.display !== 'none') {
 					console.log(`mp-tweaks: killed mp-report-banner!`, banner);
 					banner.style.display = "none";
+					bannersKilled++;
 				}
 			});
 
@@ -36,10 +38,10 @@ if (!window.__mpTweaks_bannerKillerRunning) {
 			return; // stop future attempts on error
 		}
 
-		if (bannerCount < maxExecutions) {
+		if (bannerCount < maximumExecutions && bannersKilled < 2) {
 			setTimeout(() => checkBannersWithDelay(currentDelay + delayIncrement), currentDelay);
 		} else {
-			console.log(`mp-tweaks: Reached maximum executions: ${bannerCount}`);
+			console.log(`mp-tweaks: Reached maximum executions: ${bannerCount} ... killed ${bannersKilled} banners`);
 		}
 	}
 
