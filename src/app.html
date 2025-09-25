@@ -41,8 +41,14 @@
 			<!-- MOD HEADER -->
 			<div id="modHeader"
 				class="section">
-				<h2 class="lower">&#128736;&#65039; Mod Header</h2>
-				<p class="small">inject <b>custom headers</b> into <span class="highlight">all mixpanel.com requests</span></p>
+				<h2 class="lower" data-section="modHeader">
+					<div class="section-header">
+						<span>&#128736;&#65039; Mod Header</span>
+					</div>
+					<span class="collapse-toggle">↓</span>
+				</h2>
+				<div class="section-content">
+					<p class="small">inject <b>custom headers</b> into <span class="highlight">all mixpanel.com requests</span></p>
 				<p class="status-line"><span id="modHeaderLabel"
 						class="statusText">mod header is: <b>FOO</b></span></p>
 				<div class="controls"
@@ -71,25 +77,39 @@
 					<button class="button" id="saveHeaders">Refresh</button>
 					<button class="button remove" id="clearHeaders">Clear All</button>
 				</div>
+				</div>
 			</div>
 
 			<!-- DEMO SEQUENCES -->
 			<div id="demoLinks"
 				class="section">
-				<h2 class="lower">&#127916; Demo Sequences</h2>
-				<p class="small">click each button below for easy <span class="highlight">one-click demo setup</span></p>
+				<h2 class="lower" data-section="demoLinks">
+					<div class="section-header">
+						<span>&#127916; Demo Sequences</span>
+					</div>
+					<span class="collapse-toggle">↓</span>
+				</h2>
+				<div class="section-content">
+					<p class="small">click each button below for easy <span class="highlight">one-click demo setup</span></p>
 				<div class="buttons">
 				</div>
 				<p class="addMore"><a
 						href="https://docs.google.com/spreadsheets/d/1FSX3cNbBbTLh0piT7EQ3ceIO8coDAsNVA7O4hCEtoBk/edit#gid=0&range=A1"
 						target="_blank">add a new demo sequence</a></p>
+				</div>
 			</div>
 
 			<!-- DATA TOOLS -->
 			<div id="dataTools"
 				class="section">
-				<h2 class="lower">&#129302; Apps + Tools</h2>
-				<p class="small">some <b>useful tools</b> for <span class="highlight">dummy data creation</span> and <span class="highlight">asset management</span></p>
+				<h2 class="lower" data-section="dataTools">
+					<div class="section-header">
+						<span>&#129302; Apps + Tools</span>
+					</div>
+					<span class="collapse-toggle">↓</span>
+				</h2>
+				<div class="section-content">
+					<p class="small">some <b>useful tools</b> for <span class="highlight">dummy data creation</span> and <span class="highlight">asset management</span></p>
 				<div class="buttons"
 					id="toolsWrapper">
 					<!-- injected on init -->
@@ -97,13 +117,20 @@
 				<p class="addMore"><a
 						href="https://docs.google.com/spreadsheets/d/1lR2Bu3_RLkE16xnlpB2SQJFc0DOtRaTU_TdJOX3NVGY/edit?usp=sharing"
 						target="_blank">add a new tool</a></p>
+				</div>
 			</div>
 
 			<!-- CREATE PROJECTS -->
 			<div id="createProject"
 				class="section">
-				<h2>&#128035; Project Creator</h2>
-				<p class="small">make a <b>new project</b> in <span class="highlight">your personal org</span><br /><br/><span
+				<h2 data-section="createProject">
+					<div class="section-header">
+						<span>&#128035; Project Creator</span>
+					</div>
+					<span class="collapse-toggle">↓</span>
+				</h2>
+				<div class="section-content">
+					<p class="small">make a <b>new project</b> in <span class="highlight">your personal org</span><br /><br/><span
 						id="orgLabel"
 						class="statusText hidden">connected org: <b>FOO</b></span></p>
 				<div class="button-input-group">
@@ -144,6 +171,7 @@
 							style="height: 200px; width: 90%;"></textarea></p>
 				</div>
 
+				</div>
 			</div>
 
 
@@ -152,8 +180,14 @@
 			<!-- SESSION REPLAY -->
 			<div id="sessionReplay"
 				class="section">
-				<h2 class="lower">&#128248; Session Replay / Autocapture</h2>
-				<p class="small">autocaptures your screen in the <span class="highlight">current tab (any site)</span>&emsp; &emsp; &emsp; <span
+				<h2 class="lower" data-section="sessionReplay">
+					<div class="section-header">
+						<span>&#128248; Session Replay / Autocapture</span>
+					</div>
+					<span class="collapse-toggle">↓</span>
+				</h2>
+				<div class="section-content">
+					<p class="small">autocaptures your screen in the <span class="highlight">current tab (any site)</span>&emsp; &emsp; &emsp; <span
 						id="sessionReplayLabel"
 						class="statusText hidden">Recording is: <b>FOO</b></span></p>
 				<input class="tokenEntry"
@@ -164,14 +198,21 @@
 					<button class="button" id="startReplay">Start Capture</button>
 					<button class="button" id="stopReplay">Stop Capture</button>
 				</div>
+				</div>
 			</div>
 
 			<!-- CHART EDITOR -->
 			<div style="display: none;"
 				id="dataEditor"
 				class="section">
-				<h2>&#128202; Chart Editor / API Query Builder</h2>
-				<p class="small"><b>change the data</b> for a chart in the <b>active tab</b><br />
+				<h2 data-section="dataEditor">
+					<div class="section-header">
+						<span>&#128202; Chart Editor / API Query Builder</span>
+					</div>
+					<span class="collapse-toggle">↓</span>
+				</h2>
+				<div class="section-content">
+					<p class="small"><b>change the data</b> for a chart in the <b>active tab</b><br />
 					or <b>construct an query API payload</b> for the chart in the <b>active tab</b></p>
 				<div class="controls">
 					<div class="buttons">
@@ -216,20 +257,28 @@
 					</div>
 
 				</div>
+				</div>
 			</div>
 
 
 			<!-- FEATURE FLAGS -->
 			<div id="perTab"
 				class="section">
-				<h2 class="lower">&#128681; Feature Flags</h2>
-				<p class="small">inject <b>feature flags</b> into the <span class="highlight">active mixpanel.com tab</span></p>
+				<h2 class="lower" data-section="perTab">
+					<div class="section-header">
+						<span>&#128681; Feature Flags</span>
+					</div>
+					<span class="collapse-toggle">↓</span>
+				</h2>
+				<div class="section-content">
+					<p class="small">inject <b>feature flags</b> into the <span class="highlight">active mixpanel.com tab</span></p>
 				<div class="buttons">
 				</div>
 				<button class="button remove" id="removeAll">Remove All Flags</button>
 				<p class="addMore"><a
 						href="https://docs.google.com/spreadsheets/d/1NPOk9MpGrvA8ruFVv2AToMnL_Yt_Mz8jN52vE89MQ1U/edit#gid=0&range=A1"
 						target="_blank">add a new feature flag</a></p>
+				</div>
 			</div>
 
 
@@ -237,8 +286,14 @@
 			<div id="persistentOptions"
 				class="section">
 				<form>
-					<h2>&#128204; Persistent Options</h2>
-					<p class="small">always active on <span class="highlight">all mixpanel tabs</span> when enabled</p>
+					<h2 data-section="persistentOptions">
+						<div class="section-header">
+							<span>&#128204; Persistent Options</span>
+						</div>
+						<span class="collapse-toggle">↓</span>
+					</h2>
+					<div class="section-content">
+						<p class="small">always active on <span class="highlight">all mixpanel tabs</span> when enabled</p>
 
 					<div class="controls">
 
@@ -277,6 +332,7 @@
 
 					</div>
 
+					</div>
 				</form>
 			</div>
 
@@ -284,11 +340,18 @@
 			<!-- ODDS N ENDS -->
 			<div id="oddsEnds"
 				class="section">
-				<h2 class="lower">&#127922; Odds and Ends</h2>
-				<p class="small">some <b>random stuff</b> that is helpful for <span class="highlight">development and testing</span></p>
+				<h2 class="lower" data-section="oddsEnds">
+					<div class="section-header">
+						<span>&#127922; Odds and Ends</span>
+					</div>
+					<span class="collapse-toggle">↓</span>
+				</h2>
+				<div class="section-content">
+					<p class="small">some <b>random stuff</b> that is helpful for <span class="highlight">development and testing</span></p>
 				<div class="button-input-group">
 					<button class="button" id="nukeCookies">Nuke Cookies</button>
 					<button class="button" id="embedSDK">Embed SDK</button>
+				</div>
 				</div>
 			</div>
 

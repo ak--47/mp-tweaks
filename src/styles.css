@@ -85,7 +85,7 @@ h1 {
   text-decoration: none;
   display: flex;
   align-items: center;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, opacity 0.2s ease;
 }
 
 .logo-link:hover {
@@ -123,6 +123,7 @@ p {
   border-radius: 8px;
   padding: 7px;
   box-shadow: var(--shadow-sm);
+  overflow: hidden;
 }
 
 .section h2 {
@@ -132,14 +133,55 @@ p {
   color: var(--text-primary);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   font-family: var(--font-sans);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s ease;
 }
 
 .section h2:hover {
   color: var(--accent-purple);
-  opacity: 1;
 }
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.collapse-toggle {
+  font-size: 20px;
+  color: var(--text-muted);
+  transition: color 0.2s ease;
+  cursor: pointer;
+  font-family: monospace;
+  display: inline-block;
+  width: 18px;
+  text-align: center;
+}
+
+.collapse-toggle:hover {
+  color: var(--text-primary);
+}
+
+.section.collapsed .collapse-toggle {
+  /* When collapsed, change the content directly */
+}
+
+.section-content {
+  transition: max-height 0.3s ease, opacity 0.2s ease;
+  max-height: 2000px;
+  opacity: 1;
+  overflow: hidden;
+}
+
+.section.collapsed .section-content {
+  max-height: 0;
+  opacity: 0;
+}
+
 
 .section h2.lower {
   margin-top: 0;

@@ -5,6 +5,65 @@ let cachedFlags = null;
 
 let track = noop;
 
+// Global cleanup tracking for intervals and timeouts
+const activeIntervals = new Set();
+const activeTimeouts = new Set();
+
+// Wrapped versions of setInterval and setTimeout for tracking
+const originalSetInterval = setInterval;
+const originalSetTimeout = setTimeout;
+const originalClearInterval = clearInterval;
+const originalClearTimeout = clearTimeout;
+
+// Override global functions to track active intervals/timeouts
+if (typeof globalThis !== 'undefined') {
+	globalThis.setInterval = function(callback, delay, ...args) {
+		const id = originalSetInterval.call(this, callback, delay, ...args);
+		activeIntervals.add(id);
+		return id;
+	};
+
+	globalThis.setTimeout = function(callback, delay, ...args) {
+		const id = originalSetTimeout.call(this, callback, delay, ...args);
+		activeTimeouts.add(id);
+		return id;
+	};
+
+	globalThis.clearInterval = function(id) {
+		activeIntervals.delete(id);
+		return originalClearInterval.call(this, id);
+	};
+
+	globalThis.clearTimeout = function(id) {
+		activeTimeouts.delete(id);
+		return originalClearTimeout.call(this, id);
+	};
+}
+
+// Cleanup function to clear all active intervals and timeouts
+function cleanupAllTimers() {
+	console.log(`mp-tweaks: cleaning up ${activeIntervals.size} intervals and ${activeTimeouts.size} timeouts`);
+
+	activeIntervals.forEach(id => {
+		try {
+			originalClearInterval(id);
+		} catch (e) {
+			console.warn('mp-tweaks: failed to clear interval', id, e);
+		}
+	});
+
+	activeTimeouts.forEach(id => {
+		try {
+			originalClearTimeout(id);
+		} catch (e) {
+			console.warn('mp-tweaks: failed to clear timeout', id, e);
+		}
+	});
+
+	activeIntervals.clear();
+	activeTimeouts.clear();
+}
+
 const APP_VERSION = `2.43`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
@@ -30,6 +89,17 @@ const STORAGE_MODEL = {
 		featureFlags: { data: [], timestamp: 0 },
 		demoLinks: { data: [], timestamp: 0 },
 		tools: { data: [], timestamp: 0 }
+	},
+	sectionStates: {
+		modHeader: { expanded: true },
+		demoLinks: { expanded: true },
+		dataTools: { expanded: true },
+		createProject: { expanded: true },
+		sessionReplay: { expanded: true },
+		dataEditor: { expanded: true },
+		perTab: { expanded: true },
+		persistentOptions: { expanded: true },
+		oddsEnds: { expanded: true }
 	},
 };
 
@@ -138,7 +208,7 @@ chrome.tabs.onUpdated.addListener(async function (tabId, changeInfo, tab) {
 
 			// persist scripts
 			if ((tab.url.includes('project') || tab.url.includes('report'))) {
-				track('worker: mp page', { url: tab.url });
+				// track('worker: mp page', { url: tab.url });
 				console.log('mp-tweaks: project page loaded');
 				const { persistScripts = [] } = await getStorage();
 				for (const script of persistScripts) {
@@ -196,6 +266,19 @@ chrome.tabs.onRemoved.addListener(function (tabId, removeInfo) {
 		setStorage(STORAGE);
 	}
 });
+
+// Extension lifecycle cleanup
+chrome.runtime.onSuspend.addListener(function() {
+	console.log('mp-tweaks: extension suspending, cleaning up timers');
+	cleanupAllTimers();
+});
+
+// Clean up on extension shutdown
+if (typeof process !== 'undefined' && process.on) {
+	process.on('exit', cleanupAllTimers);
+	process.on('SIGINT', cleanupAllTimers);
+	process.on('SIGTERM', cleanupAllTimers);
+}
 
 // messages from extension
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
@@ -465,6 +548,12 @@ async function handleRequest(request) {
 			}
 			break;
 
+		case 'cleanup-timers':
+			console.log('mp-tweaks: manually cleaning up timers');
+			cleanupAllTimers();
+			result = `Cleaned up ${activeIntervals.size + activeTimeouts.size} timers`;
+			break;
+
 		default:
 			console.error("mp-tweaks: unknown action", request);
 			track('unknown-action', { request: request });
@@ -711,20 +800,53 @@ async function startSessionReplay(token, tabId) {
 
 
 async function injectToolTip(tooltip) {
-	function waitForElement(selector, context = document, interval = 1000, timeout = 60000 * 60) {
+	function waitForElement(selector, context = document, interval = 500, timeout = 30000) {
 		return new Promise((resolve, reject) => {
 			const startTime = Date.now();
+			let poller;
 
-			const poller = setInterval(() => {
-				const element = context.querySelector(selector);
-				if (element) {
-					clearInterval(poller);
-					resolve(element);
-				} else if (Date.now() - startTime >= timeout) {
-					clearInterval(poller);
+			// First try immediate check
+			const element = context.querySelector(selector);
+			if (element) {
+				resolve(element);
+				return;
+			}
+
+			// Use MutationObserver for better performance when available
+			if (typeof MutationObserver !== 'undefined') {
+				const observer = new MutationObserver(() => {
+					const element = context.querySelector(selector);
+					if (element) {
+						observer.disconnect();
+						if (poller) clearInterval(poller);
+						resolve(element);
+					}
+				});
+
+				observer.observe(context, {
+					childList: true,
+					subtree: true
+				});
+
+				// Fallback timeout
+				setTimeout(() => {
+					observer.disconnect();
+					if (poller) clearInterval(poller);
 					reject(new Error(`mp-tweaks: element ${selector} not found within ${timeout}ms.`));
-				}
-			}, interval);
+				}, timeout);
+			} else {
+				// Fallback to polling for older browsers
+				poller = setInterval(() => {
+					const element = context.querySelector(selector);
+					if (element) {
+						clearInterval(poller);
+						resolve(element);
+					} else if (Date.now() - startTime >= timeout) {
+						clearInterval(poller);
+						reject(new Error(`mp-tweaks: element ${selector} not found within ${timeout}ms.`));
+					}
+				}, interval);
+			}
 		});
 	}
 
@@ -895,15 +1017,39 @@ function openNewTab(url, inBackground = false) {
 function sessionReplayInit(token, opts = {}, user) {
 	let attempts = 0;
 	let intervalId;
+	let timeoutId;
 	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
 	const addTracking = opts.addTracking || false;
+	const maxAttempts = 10; // Reduced from 15
+	const pollInterval = 1000; // Reduced from 2500ms to 1000ms
+	const maxWaitTime = 30000; // 30 seconds maximum
+
+	function cleanup() {
+		if (intervalId) {
+			originalClearInterval(intervalId);
+			activeIntervals.delete(intervalId);
+			intervalId = null;
+		}
+		if (timeoutId) {
+			originalClearTimeout(timeoutId);
+			activeTimeouts.delete(timeoutId);
+			timeoutId = null;
+		}
+	}
+
+	// Set maximum timeout regardless of attempts
+	timeoutId = originalSetTimeout(() => {
+		cleanup();
+		console.log('mp-tweaks: session replay init timeout after 30 seconds');
+	}, maxWaitTime);
+	activeTimeouts.add(timeoutId);
 
 	function tryInit() {
 		// @ts-ignore
 		if (window.mixpanel && !window.SESSION_REPLAY_ACTIVE) {
 			console.log('mp-tweaks: turning on session replay');
 			window.SESSION_REPLAY_ACTIVE = true;
-			clearInterval(intervalId);
+			cleanup();
 
 			mixpanel.init(token, {
 
@@ -949,16 +1095,23 @@ function sessionReplayInit(token, opts = {}, user) {
 			});
 		} else {
 			attempts++;
-			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}`);
-			if (attempts > 15) {
-				clearInterval(intervalId);
-				console.log('mp-tweaks: session replay not found');
+			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}/${maxAttempts}`);
+			if (attempts >= maxAttempts) {
+				cleanup();
+				console.log('mp-tweaks: session replay not found after maximum attempts');
 			}
-
 		}
 	}
 
-	intervalId = setInterval(tryInit, 2500);
+	// Store interval ID globally for cleanup - use original to avoid double tracking
+	intervalId = originalSetInterval(tryInit, pollInterval);
+	activeIntervals.add(intervalId);
+
+	// Clean up on page unload
+	if (typeof window !== 'undefined') {
+		window.addEventListener('beforeunload', cleanup);
+		window.addEventListener('pagehide', cleanup);
+	}
 
 }
 
