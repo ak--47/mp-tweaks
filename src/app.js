@@ -1447,12 +1447,8 @@ function initCollapsibleSections() {
 function setupCollapsibleSections() {
 	// Get current storage from APP
 	APP.getStorage().then(storage => {
-		console.log('mp-tweaks: setupCollapsibleSections - full storage:', storage);
-		console.log('mp-tweaks: setupCollapsibleSections - sectionStates:', storage?.sectionStates);
-
 		// Initialize sectionStates if it doesn't exist (for existing users)
 		if (!storage.sectionStates) {
-			console.log('mp-tweaks: initializing sectionStates for existing user');
 			storage.sectionStates = {
 				modHeader: { expanded: true },
 				demoLinks: { expanded: true },
@@ -1464,7 +1460,6 @@ function setupCollapsibleSections() {
 				persistentOptions: { expanded: true },
 				oddsEnds: { expanded: true }
 			};
-			// Save the updated storage
 			APP.setStorage(storage);
 		}
 
@@ -1472,32 +1467,24 @@ function setupCollapsibleSections() {
 		document.querySelectorAll('.section[id]').forEach(section => {
 			const sectionName = section.id;
 			const toggle = section.querySelector('.collapse-toggle');
-
-			// Check if we have saved state
 			const savedState = storage?.sectionStates?.[sectionName];
-			console.log(`mp-tweaks: section ${sectionName} has toggle:`, !!toggle);
-			console.log(`mp-tweaks: section ${sectionName} savedState:`, savedState);
 
 			if (savedState && !savedState.expanded) {
 				// Collapsed state
-				console.log(`mp-tweaks: restoring ${sectionName} as COLLAPSED`);
 				section.classList.add('collapsed');
 				if (toggle) toggle.textContent = '←';
 			} else {
 				// Expanded state (default)
-				console.log(`mp-tweaks: setting ${sectionName} as EXPANDED (default)`);
 				section.classList.remove('collapsed');
 				if (toggle) toggle.textContent = '↓';
 			}
 		});
-	}).catch(err => {
-		console.error('mp-tweaks: error getting storage in setupCollapsibleSections:', err);
 	});
 
 	// Add click listeners to all section headers
 	document.querySelectorAll('.section h2[data-section]').forEach(header => {
-		header.addEventListener('click', (e) => {
-			const sectionName = header.dataset.section;
+		header.addEventListener('click', () => {
+			const sectionName = header.getAttribute('data-section');
 			APP.toggleSection(sectionName);
 		});
 	});
@@ -1510,24 +1497,19 @@ function toggleSection(sectionName) {
 	const isCurrentlyCollapsed = section.classList.contains('collapsed');
 	const toggle = section.querySelector('.collapse-toggle');
 
-	console.log(`mp-tweaks: toggleSection ${sectionName}, currently collapsed: ${isCurrentlyCollapsed}`);
-
 	// Toggle the visual state
 	if (isCurrentlyCollapsed) {
 		section.classList.remove('collapsed');
 		if (toggle) toggle.textContent = '↓'; // Open state
-		console.log(`mp-tweaks: ${sectionName} is now EXPANDED`);
 	} else {
 		section.classList.add('collapsed');
 		if (toggle) toggle.textContent = '←'; // Closed state
-		console.log(`mp-tweaks: ${sectionName} is now COLLAPSED`);
 	}
 
 	// Update storage
 	APP.getStorage().then(storage => {
 		// Initialize sectionStates if it doesn't exist
 		if (!storage.sectionStates) {
-			console.log('mp-tweaks: initializing sectionStates');
 			storage.sectionStates = {
 				modHeader: { expanded: true },
 				demoLinks: { expanded: true },
@@ -1542,8 +1524,6 @@ function toggleSection(sectionName) {
 		}
 
 		storage.sectionStates[sectionName] = { expanded: isCurrentlyCollapsed };
-		console.log(`mp-tweaks: saved ${sectionName} state - expanded: ${isCurrentlyCollapsed}`);
-		console.log(`mp-tweaks: full sectionStates:`, storage.sectionStates);
 		APP.setStorage(storage);
 	});
 }
