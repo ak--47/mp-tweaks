@@ -208,7 +208,7 @@ chrome.tabs.onUpdated.addListener(async function (tabId, changeInfo, tab) {
 
 			// persist scripts
 			if ((tab.url.includes('project') || tab.url.includes('report'))) {
-				track('worker: mp page', { url: tab.url });
+				// track('worker: mp page', { url: tab.url });
 				console.log('mp-tweaks: project page loaded');
 				const { persistScripts = [] } = await getStorage();
 				for (const script of persistScripts) {

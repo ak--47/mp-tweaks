@@ -42,6 +42,9 @@ const APP = {
 	getHeaders,
 	addQueryParams,
 	storeBatchResponses,
+	initCollapsibleSections,
+	setupCollapsibleSections,
+	toggleSection,
 	init: function (allowCache = true) {
 		this.cacheDOM();
 		this.getStorage().then(() => {
@@ -76,6 +79,8 @@ const APP = {
 				})
 				.finally(() => {
 					console.log('mp-tweaks: app is ready');
+					// Initialize collapsible sections after everything is loaded
+					this.initCollapsibleSections();
 				});
 		});
 	},
@@ -424,14 +429,14 @@ function cacheDOM() {
 
 	//demo builds
 	this.DOM.demoLinks = document.querySelector('#demoLinks');
-	this.DOM.demoLinksWrapper = document.querySelector('#demoLinks > .buttons');
+	this.DOM.demoLinksWrapper = document.querySelector('#demoLinks .section-content .buttons');
 
 	//tools
 	this.DOM.toolsWrapper = document.querySelector('#toolsWrapper');
 
 	//feature flags
 	this.DOM.perTab = document.querySelector('#perTab');
-	this.DOM.buttonWrapper = document.querySelector('#perTab > .buttons');
+	this.DOM.buttonWrapper = document.querySelector('#perTab .section-content .buttons');
 	this.DOM.removeAll = document.querySelector('#removeAll');
 
 	//persistent scripts	
@@ -1020,7 +1025,11 @@ function buildFlagButtons(object) {
 		track('flag button', { flag });
 		messageWorker('add-flag', { flag });
 	};
-	this.DOM.buttonWrapper.appendChild(newButton);
+	if (this.DOM.buttonWrapper) {
+		this.DOM.buttonWrapper.appendChild(newButton);
+	} else {
+		console.warn('mp-tweaks: buttonWrapper not found for feature flags');
+	}
 }
 
 function buildToolsButtons(buttonData) {
@@ -1046,7 +1055,11 @@ function buildToolsButtons(buttonData) {
 		track('tool button', { tool });
 		await openNewTab(url, true);
 	};
-	this.DOM.toolsWrapper.appendChild(newButton);
+	if (this.DOM.toolsWrapper) {
+		this.DOM.toolsWrapper.appendChild(newButton);
+	} else {
+		console.warn('mp-tweaks: toolsWrapper not found');
+	}
 }
 
 function buildDemoButtons(demo, data) {
@@ -1077,7 +1090,11 @@ function buildDemoButtons(demo, data) {
 			messageWorker('open-tab', { url: URL, ...meta });
 		});
 	};
-	this.DOM.demoLinksWrapper.appendChild(newButton);
+	if (this.DOM.demoLinksWrapper) {
+		this.DOM.demoLinksWrapper.appendChild(newButton);
+	} else {
+		console.warn('mp-tweaks: demoLinksWrapper not found');
+	}
 
 }
 
@@ -1414,6 +1431,122 @@ async function storeBatchResponses(responses) {
 }
 
 
+
+// Collapsible sections functionality
+function initCollapsibleSections() {
+	// Wait for DOM to be ready
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', () => {
+			APP.setupCollapsibleSections();
+		});
+	} else {
+		APP.setupCollapsibleSections();
+	}
+}
+
+function setupCollapsibleSections() {
+	// Get current storage from APP
+	APP.getStorage().then(storage => {
+		console.log('mp-tweaks: setupCollapsibleSections - full storage:', storage);
+		console.log('mp-tweaks: setupCollapsibleSections - sectionStates:', storage?.sectionStates);
+
+		// Initialize sectionStates if it doesn't exist (for existing users)
+		if (!storage.sectionStates) {
+			console.log('mp-tweaks: initializing sectionStates for existing user');
+			storage.sectionStates = {
+				modHeader: { expanded: true },
+				demoLinks: { expanded: true },
+				dataTools: { expanded: true },
+				createProject: { expanded: true },
+				sessionReplay: { expanded: true },
+				dataEditor: { expanded: true },
+				perTab: { expanded: true },
+				persistentOptions: { expanded: true },
+				oddsEnds: { expanded: true }
+			};
+			// Save the updated storage
+			APP.setStorage(storage);
+		}
+
+		// Set initial states for all sections
+		document.querySelectorAll('.section[id]').forEach(section => {
+			const sectionName = section.id;
+			const toggle = section.querySelector('.collapse-toggle');
+
+			// Check if we have saved state
+			const savedState = storage?.sectionStates?.[sectionName];
+			console.log(`mp-tweaks: section ${sectionName} has toggle:`, !!toggle);
+			console.log(`mp-tweaks: section ${sectionName} savedState:`, savedState);
+
+			if (savedState && !savedState.expanded) {
+				// Collapsed state
+				console.log(`mp-tweaks: restoring ${sectionName} as COLLAPSED`);
+				section.classList.add('collapsed');
+				if (toggle) toggle.textContent = '←';
+			} else {
+				// Expanded state (default)
+				console.log(`mp-tweaks: setting ${sectionName} as EXPANDED (default)`);
+				section.classList.remove('collapsed');
+				if (toggle) toggle.textContent = '↓';
+			}
+		});
+	}).catch(err => {
+		console.error('mp-tweaks: error getting storage in setupCollapsibleSections:', err);
+	});
+
+	// Add click listeners to all section headers
+	document.querySelectorAll('.section h2[data-section]').forEach(header => {
+		header.addEventListener('click', (e) => {
+			const sectionName = header.dataset.section;
+			APP.toggleSection(sectionName);
+		});
+	});
+}
+
+function toggleSection(sectionName) {
+	const section = document.getElementById(sectionName);
+	if (!section) return;
+
+	const isCurrentlyCollapsed = section.classList.contains('collapsed');
+	const toggle = section.querySelector('.collapse-toggle');
+
+	console.log(`mp-tweaks: toggleSection ${sectionName}, currently collapsed: ${isCurrentlyCollapsed}`);
+
+	// Toggle the visual state
+	if (isCurrentlyCollapsed) {
+		section.classList.remove('collapsed');
+		if (toggle) toggle.textContent = '↓'; // Open state
+		console.log(`mp-tweaks: ${sectionName} is now EXPANDED`);
+	} else {
+		section.classList.add('collapsed');
+		if (toggle) toggle.textContent = '←'; // Closed state
+		console.log(`mp-tweaks: ${sectionName} is now COLLAPSED`);
+	}
+
+	// Update storage
+	APP.getStorage().then(storage => {
+		// Initialize sectionStates if it doesn't exist
+		if (!storage.sectionStates) {
+			console.log('mp-tweaks: initializing sectionStates');
+			storage.sectionStates = {
+				modHeader: { expanded: true },
+				demoLinks: { expanded: true },
+				dataTools: { expanded: true },
+				createProject: { expanded: true },
+				sessionReplay: { expanded: true },
+				dataEditor: { expanded: true },
+				perTab: { expanded: true },
+				persistentOptions: { expanded: true },
+				oddsEnds: { expanded: true }
+			};
+		}
+
+		storage.sectionStates[sectionName] = { expanded: isCurrentlyCollapsed };
+		console.log(`mp-tweaks: saved ${sectionName} state - expanded: ${isCurrentlyCollapsed}`);
+		console.log(`mp-tweaks: full sectionStates:`, storage.sectionStates);
+		APP.setStorage(storage);
+	});
+}
 
 try {
 	if (window) {
