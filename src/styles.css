@@ -85,7 +85,7 @@ h1 {
   text-decoration: none;
   display: flex;
   align-items: center;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, opacity 0.2s ease;
 }
 
 .logo-link:hover {
@@ -123,6 +123,7 @@ p {
   border-radius: 8px;
   padding: 7px;
   box-shadow: var(--shadow-sm);
+  overflow: hidden;
 }
 
 .section h2 {
