@@ -64,7 +64,7 @@ function cleanupAllTimers() {
 	activeTimeouts.clear();
 }
 
-const APP_VERSION = `2.43`;
+const APP_VERSION = `2.44`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -122,6 +122,17 @@ async function init() {
 		modHeaders: raw.modHeaders || { headers: [], enabled: false, savedHeaders: [] },
 		responseOverrides: raw.responseOverrides || {},
 		whoami: raw.whoami || { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
+		sectionStates: raw.sectionStates || {
+			modHeader: { expanded: true },
+			demoLinks: { expanded: true },
+			dataTools: { expanded: true },
+			createProject: { expanded: true },
+			sessionReplay: { expanded: true },
+			dataEditor: { expanded: true },
+			perTab: { expanded: true },
+			persistentOptions: { expanded: true },
+			oddsEnds: { expanded: true }
+		},
 		externalDataCache: raw.externalDataCache || {
 			featureFlags: { data: [], timestamp: 0 },
 			demoLinks: { data: [], timestamp: 0 },
@@ -1026,23 +1037,20 @@ function sessionReplayInit(token, opts = {}, user) {
 
 	function cleanup() {
 		if (intervalId) {
-			originalClearInterval(intervalId);
-			activeIntervals.delete(intervalId);
+			clearInterval(intervalId);
 			intervalId = null;
 		}
 		if (timeoutId) {
-			originalClearTimeout(timeoutId);
-			activeTimeouts.delete(timeoutId);
+			clearTimeout(timeoutId);
 			timeoutId = null;
 		}
 	}
 
 	// Set maximum timeout regardless of attempts
-	timeoutId = originalSetTimeout(() => {
+	timeoutId = setTimeout(() => {
 		cleanup();
 		console.log('mp-tweaks: session replay init timeout after 30 seconds');
 	}, maxWaitTime);
-	activeTimeouts.add(timeoutId);
 
 	function tryInit() {
 		// @ts-ignore
@@ -1103,9 +1111,8 @@ function sessionReplayInit(token, opts = {}, user) {
 		}
 	}
 
-	// Store interval ID globally for cleanup - use original to avoid double tracking
-	intervalId = originalSetInterval(tryInit, pollInterval);
-	activeIntervals.add(intervalId);
+	// Store interval ID globally for cleanup
+	intervalId = setInterval(tryInit, pollInterval);
 
 	// Clean up on page unload
 	if (typeof window !== 'undefined') {
