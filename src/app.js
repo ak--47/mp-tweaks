@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.43`;
+const APP_VERSION = `2.45`;
 // const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 // const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 // const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
@@ -1447,23 +1447,8 @@ function initCollapsibleSections() {
 function setupCollapsibleSections() {
 	// Get current storage from APP
 	APP.getStorage().then(storage => {
-		// Initialize sectionStates if it doesn't exist (for existing users)
-		if (!storage.sectionStates) {
-			storage.sectionStates = {
-				modHeader: { expanded: true },
-				demoLinks: { expanded: true },
-				dataTools: { expanded: true },
-				createProject: { expanded: true },
-				sessionReplay: { expanded: true },
-				dataEditor: { expanded: true },
-				perTab: { expanded: true },
-				persistentOptions: { expanded: true },
-				oddsEnds: { expanded: true }
-			};
-			APP.setStorage(storage);
-		}
-
-		// Set initial states for all sections
+		// Set initial states for all sections based on saved preferences
+		// Do NOT initialize defaults here - the worker handles that
 		document.querySelectorAll('.section[id]').forEach(section => {
 			const sectionName = section.id;
 			const toggle = section.querySelector('.collapse-toggle');
@@ -1508,19 +1493,10 @@ function toggleSection(sectionName) {
 
 	// Update storage
 	APP.getStorage().then(storage => {
-		// Initialize sectionStates if it doesn't exist
+		// Ensure sectionStates exists (should always exist from worker init)
 		if (!storage.sectionStates) {
-			storage.sectionStates = {
-				modHeader: { expanded: true },
-				demoLinks: { expanded: true },
-				dataTools: { expanded: true },
-				createProject: { expanded: true },
-				sessionReplay: { expanded: true },
-				dataEditor: { expanded: true },
-				perTab: { expanded: true },
-				persistentOptions: { expanded: true },
-				oddsEnds: { expanded: true }
-			};
+			console.warn('mp-tweaks: sectionStates missing, creating minimal entry');
+			storage.sectionStates = {};
 		}
 
 		storage.sectionStates[sectionName] = { expanded: isCurrentlyCollapsed };
