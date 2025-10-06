@@ -64,7 +64,7 @@ function cleanupAllTimers() {
 	activeTimeouts.clear();
 }
 
-const APP_VERSION = `2.44`;
+const APP_VERSION = `2.45`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -101,6 +101,7 @@ const STORAGE_MODEL = {
 		persistentOptions: { expanded: true },
 		oddsEnds: { expanded: true }
 	},
+	sectionOrder: ['modHeader', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds']
 };
 
 /*
@@ -133,6 +134,7 @@ async function init() {
 			persistentOptions: { expanded: true },
 			oddsEnds: { expanded: true }
 		},
+		sectionOrder: raw.sectionOrder || ['modHeader', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds'],
 		externalDataCache: raw.externalDataCache || {
 			featureFlags: { data: [], timestamp: 0 },
 			demoLinks: { data: [], timestamp: 0 },
@@ -335,7 +337,7 @@ async function handleRequest(request) {
 	let result = null;
 	const catchFetchUri = chrome.runtime.getURL('/src/tweaks/catchFetch.js');
 	const reqId = uid();
-	track('worker start', { action: request.action, data: request.data, reqId });
+	//track('worker start', { action: request.action, data: request.data, reqId });
 
 	switch (request.action) {
 		case 'refresh-storage':
@@ -861,12 +863,69 @@ async function injectToolTip(tooltip) {
 		});
 	}
 
-	if (typeof tooltip === 'string') tooltip = { primary: tooltip };
+	if (typeof tooltip === 'string') tooltip = { title: tooltip }; //title is the default and should replace the document.title
 	if (typeof tooltip !== 'object') throw new Error('Invalid tooltip data');
 	if (!tooltip.primary) tooltip.primary = "";
 	if (!tooltip.secondary) tooltip.secondary = "";
+	if (!tooltip.title) tooltip.title = "";
 	if (tooltip.text && !tooltip.secondary) tooltip.primary = tooltip.text;
 	if (tooltip.tooltip && !tooltip.secondary && !tooltip.primary) tooltip.primary = tooltip.tooltip;
+
+	// Handle custom tab title immediately if provided
+	if (tooltip.title && tooltip.title.trim() !== "") {
+		const customTitle = tooltip.title.trim();
+		console.log('mp-tweaks: setting custom tab title:', customTitle);
+
+		// Set title immediately
+		document.title = customTitle;
+
+		// Protect against other code changing the title
+		// Store the desired title
+		window.__mpTweaksCustomTitle = customTitle;
+
+		// Watch for title changes and reset if needed
+		const titleObserver = new MutationObserver(() => {
+			if (document.title !== window.__mpTweaksCustomTitle) {
+				console.log('mp-tweaks: resetting tab title to:', window.__mpTweaksCustomTitle);
+				document.title = window.__mpTweaksCustomTitle;
+			}
+		});
+
+		// Observe title element changes
+		const titleElement = document.querySelector('title');
+		if (titleElement) {
+			titleObserver.observe(titleElement, {
+				childList: true,
+				characterData: true,
+				subtree: true
+			});
+		}
+
+		// Also use Object.defineProperty for extra protection
+		try {
+			Object.defineProperty(document, 'title', {
+				get: function() {
+					return window.__mpTweaksCustomTitle || document.querySelector('title')?.textContent || '';
+				},
+				set: function(newTitle) {
+					// Only allow setting if it matches our custom title
+					if (newTitle === window.__mpTweaksCustomTitle || !window.__mpTweaksCustomTitle) {
+						const titleEl = document.querySelector('title');
+						if (titleEl) {
+							titleEl.textContent = newTitle;
+						}
+					} else {
+						console.log('mp-tweaks: blocked title change attempt to:', newTitle);
+					}
+				},
+				configurable: true
+			});
+		} catch (e) {
+			// Some browsers may not allow redefining document.title
+			console.warn('mp-tweaks: could not protect title with defineProperty:', e);
+		}
+	}
+
 	if (!tooltip.primary && !tooltip.secondary) return; // no text to inject
 
 	const html = `
@@ -936,7 +995,6 @@ async function nukeCookies(domain = "mixpanel.com") {
 	}
 	return cookies.length;
 }
-
 
 async function runScript(funcOrPath, args = [], opts, target) {
 	try {
