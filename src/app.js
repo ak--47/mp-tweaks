@@ -45,6 +45,10 @@ const APP = {
 	initCollapsibleSections,
 	setupCollapsibleSections,
 	toggleSection,
+	initDragAndDrop,
+	setupDragAndDrop,
+	applySectionOrder,
+	saveSectionOrder,
 	init: function (allowCache = true) {
 		this.cacheDOM();
 		this.getStorage().then(() => {
@@ -79,8 +83,9 @@ const APP = {
 				})
 				.finally(() => {
 					console.log('mp-tweaks: app is ready');
-					// Initialize collapsible sections after everything is loaded
+					// Initialize collapsible sections and drag-and-drop after everything is loaded
 					this.initCollapsibleSections();
+					this.initDragAndDrop();
 				});
 		});
 	},
@@ -1502,6 +1507,238 @@ function toggleSection(sectionName) {
 		storage.sectionStates[sectionName] = { expanded: isCurrentlyCollapsed };
 		APP.setStorage(storage);
 	});
+}
+
+// Drag and drop functionality
+let draggedElement = null;
+
+function initDragAndDrop() {
+	try {
+		// Wait for DOM to be ready
+		if (document.readyState === 'loading') {
+			document.addEventListener('DOMContentLoaded', () => {
+				APP.setupDragAndDrop();
+			});
+		} else {
+			APP.setupDragAndDrop();
+		}
+	} catch (error) {
+		console.error('mp-tweaks: failed to initialize drag and drop', error);
+	}
+}
+
+function setupDragAndDrop() {
+	try {
+		const sections = document.querySelectorAll('.section[id]');
+
+		sections.forEach(section => {
+			// Make section draggable
+			section.setAttribute('draggable', 'true');
+
+			// Add grip handle to header
+			const header = section.querySelector('.section-header');
+			if (header) {
+				// Create grip icon (six dots)
+				const grip = document.createElement('span');
+				grip.className = 'drag-handle';
+				grip.innerHTML = '⋮⋮';
+				grip.title = 'Drag to reorder';
+
+				// Insert grip at the beginning of header
+				header.insertBefore(grip, header.firstChild);
+			}
+
+			// Drag event listeners
+			section.addEventListener('dragstart', handleDragStart);
+			section.addEventListener('dragend', handleDragEnd);
+			section.addEventListener('dragover', handleDragOver);
+			section.addEventListener('drop', handleDrop);
+			section.addEventListener('dragleave', handleDragLeave);
+		});
+
+		// Apply saved order
+		APP.applySectionOrder();
+
+	} catch (error) {
+		console.error('mp-tweaks: failed to setup drag and drop', error);
+	}
+}
+
+function handleDragStart(e) {
+	try {
+		draggedElement = this;
+		this.classList.add('dragging');
+		e.dataTransfer.effectAllowed = 'move';
+		e.dataTransfer.setData('text/html', this.innerHTML);
+	} catch (error) {
+		console.error('mp-tweaks: drag start error', error);
+	}
+}
+
+function handleDragEnd(e) {
+	try {
+		this.classList.remove('dragging');
+
+		// Remove all drag-over classes
+		document.querySelectorAll('.section').forEach(section => {
+			section.classList.remove('drag-over', 'drag-over-bottom');
+		});
+
+		draggedElement = null;
+	} catch (error) {
+		console.error('mp-tweaks: drag end error', error);
+	}
+}
+
+function handleDragOver(e) {
+	try {
+		if (e.preventDefault) {
+			e.preventDefault();
+		}
+
+		e.dataTransfer.dropEffect = 'move';
+
+		if (this === draggedElement) {
+			return;
+		}
+
+		// Remove previous drag-over classes
+		document.querySelectorAll('.section').forEach(section => {
+			section.classList.remove('drag-over', 'drag-over-bottom');
+		});
+
+		// Determine if we should show indicator on top or bottom
+		const rect = this.getBoundingClientRect();
+		const midpoint = rect.top + (rect.height / 2);
+
+		if (e.clientY < midpoint) {
+			this.classList.add('drag-over');
+		} else {
+			this.classList.add('drag-over-bottom');
+		}
+
+		return false;
+	} catch (error) {
+		console.error('mp-tweaks: drag over error', error);
+		return false;
+	}
+}
+
+function handleDrop(e) {
+	try {
+		if (e.stopPropagation) {
+			e.stopPropagation();
+		}
+
+		if (draggedElement !== this) {
+			// Determine drop position
+			const rect = this.getBoundingClientRect();
+			const midpoint = rect.top + (rect.height / 2);
+			const container = this.parentNode;
+
+			if (e.clientY < midpoint) {
+				// Insert before this element
+				container.insertBefore(draggedElement, this);
+			} else {
+				// Insert after this element
+				container.insertBefore(draggedElement, this.nextSibling);
+			}
+
+			// Save new order
+			APP.saveSectionOrder();
+		}
+
+		return false;
+	} catch (error) {
+		console.error('mp-tweaks: drop error', error);
+		return false;
+	}
+}
+
+function handleDragLeave(e) {
+	try {
+		this.classList.remove('drag-over', 'drag-over-bottom');
+	} catch (error) {
+		console.error('mp-tweaks: drag leave error', error);
+	}
+}
+
+function saveSectionOrder() {
+	try {
+		const sections = document.querySelectorAll('.section[id]');
+		const order = Array.from(sections).map(section => section.id).filter(id => id);
+
+		APP.getStorage().then(storage => {
+			if (!storage.sectionOrder) {
+				storage.sectionOrder = [];
+			}
+
+			storage.sectionOrder = order;
+			APP.setStorage(storage);
+			console.log('mp-tweaks: saved section order', order);
+		}).catch(error => {
+			console.error('mp-tweaks: failed to save section order', error);
+		});
+	} catch (error) {
+		console.error('mp-tweaks: save section order error', error);
+	}
+}
+
+function applySectionOrder() {
+	try {
+		APP.getStorage().then(storage => {
+			const savedOrder = storage?.sectionOrder;
+
+			if (!savedOrder || !Array.isArray(savedOrder) || savedOrder.length === 0) {
+				console.log('mp-tweaks: no saved section order, using default');
+				return;
+			}
+
+			// Get all sections
+			const sections = Array.from(document.querySelectorAll('.section[id]'));
+			if (sections.length === 0) {
+				console.warn('mp-tweaks: no sections found for reordering');
+				return;
+			}
+
+			const sectionMap = {};
+			sections.forEach(section => {
+				if (section.id) {
+					sectionMap[section.id] = section;
+				}
+			});
+
+			// Find a reference point (first section's parent and the footer)
+			const firstSection = sections[0];
+			const container = firstSection.parentNode;
+			const footer = document.querySelector('#footer');
+
+			if (!container) {
+				console.warn('mp-tweaks: no container found for section reordering');
+				return;
+			}
+
+			// Reorder based on saved order by inserting before footer
+			savedOrder.forEach(sectionId => {
+				const section = sectionMap[sectionId];
+				if (section && section.parentNode === container) {
+					// Insert before footer to maintain footer at bottom
+					if (footer) {
+						container.insertBefore(section, footer);
+					} else {
+						container.appendChild(section);
+					}
+				}
+			});
+
+			console.log('mp-tweaks: applied section order', savedOrder);
+
+		}).catch(error => {
+			console.error('mp-tweaks: failed to apply section order', error);
+		});
+	} catch (error) {
+		console.error('mp-tweaks: apply section order error', error);
+	}
 }
 
 try {

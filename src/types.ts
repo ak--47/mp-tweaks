@@ -1,44 +1,52 @@
 export type ChromeStorage = {
-	version: string;
-	persistScripts: string[];
-	serviceAcct: {
-	  user: string;
-	  pass: string;
-	};
-	whoami: {
-	  name: string;
-	  email: string;
-	  orgId: string;
-	  oauthToken: string;
-	  orgName: string;
-	};
-	// featureFlags: Object[];
-	// demoLinks: Object[];
-	sessionReplay: {
-	  token: string;
-	  enabled: boolean;
-	  tabId: number;
-	};
-	verbose: boolean;
-	last_updated?: number;
-	modHeaders: {
-		headers: ModHeaders[]
-		enabled: boolean;
-	}
-	responseOverrides: {
-		/** projectId : list of overrides */
-		[key: number]: Object[]
-	}	
+  version: string;
+  persistScripts: string[];
+  serviceAcct: {
+    user: string;
+    pass: string;
   };
-  
+  whoami: {
+    name: string;
+    email: string;
+    orgId: string;
+    oauthToken: string;
+    orgName: string;
+  };
+  // featureFlags: Object[];
+  // demoLinks: Object[];
+  sessionReplay: {
+    token: string;
+    enabled: boolean;
+    tabId: number;
+  };
+  verbose: boolean;
+  last_updated?: number;
+  modHeaders: {
+    headers: ModHeaders[];
+    enabled: boolean;
+    savedHeaders: ModHeaders[];
+  };
+  responseOverrides: {
+    /** projectId : list of overrides */
+    [key: number]: Object[];
+  };
+  externalDataCache: {
+	[key: string]: any;
+  };
+  sectionStates: {
+	[key: string]: any;
+  };
+  sectionOrder: string[];
+};
+
 // Define a type for the additional string key-value pairs
 type AdditionalHeaders = {
-    [key: string]: string;
-}
+  [key: string]: string;
+};
 
 // Define a type that includes the specific 'enabled' property and additional properties
 type ModHeaders = AdditionalHeaders & {
-    enabled: boolean;
-}
+  enabled: boolean;
+};
 
-type Hacks = '100x' | 'hideBanners' | 'renameTabs' | 'hideBetas'
+type Hacks = "100x" | "hideBanners" | "renameTabs" | "hideBetas";
