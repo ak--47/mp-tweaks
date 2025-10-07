@@ -489,6 +489,30 @@
     function mutationObserverCtor$1() {
         return getUntaintedPrototype$1("MutationObserver").constructor;
     }
+    function patch$1(source, name, replacement) {
+        try {
+            if (!(name in source)) {
+                return function() {};
+            }
+            var original = source[name];
+            var wrapped = replacement(original);
+            if (typeof wrapped === "function") {
+                wrapped.prototype = wrapped.prototype || {};
+                Object.defineProperties(wrapped, {
+                    __rrweb_original__: {
+                        enumerable: false,
+                        value: original
+                    }
+                });
+            }
+            source[name] = wrapped;
+            return function() {
+                source[name] = original;
+            };
+        } catch (e) {
+            return function() {};
+        }
+    }
     var index$1 = {
         childNodes: childNodes$1,
         parentNode: parentNode$1,
@@ -501,7 +525,8 @@
         shadowRoot: shadowRoot$1,
         querySelector: querySelector$1,
         querySelectorAll: querySelectorAll$1,
-        mutationObserver: mutationObserverCtor$1
+        mutationObserver: mutationObserverCtor$1,
+        patch: patch$1
     };
     function isElement(n2) {
         return n2.nodeType === n2.ELEMENT_NODE;
@@ -752,26 +777,82 @@
             return "url(" + maybeQuote + stack.join("/") + maybeQuote + ")";
         });
     }
-    function normalizeCssString(cssText) {
-        return cssText.replace(/(\/\*[^*]*\*\/)|[\s;]/g, "");
+    function normalizeCssString(cssText, _testNoPxNorm) {
+        if (_testNoPxNorm === void 0) _testNoPxNorm = false;
+        if (_testNoPxNorm) {
+            return cssText.replace(/(\/\*[^*]*\*\/)|[\s;]/g, "");
+        } else {
+            return cssText.replace(/(\/\*[^*]*\*\/)|[\s;]/g, "").replace(/0px/g, "0");
+        }
     }
-    function splitCssText(cssText, style) {
+    function splitCssText(cssText, style, _testNoPxNorm) {
+        if (_testNoPxNorm === void 0) _testNoPxNorm = false;
         var childNodes2 = Array.from(style.childNodes);
         var splits = [];
+        var iterCount = 0;
         if (childNodes2.length > 1 && cssText && typeof cssText === "string") {
-            var cssTextNorm = normalizeCssString(cssText);
+            var cssTextNorm = normalizeCssString(cssText, _testNoPxNorm);
+            var normFactor = cssTextNorm.length / cssText.length;
             for(var i2 = 1; i2 < childNodes2.length; i2++){
                 if (childNodes2[i2].textContent && typeof childNodes2[i2].textContent === "string") {
-                    var textContentNorm = normalizeCssString(childNodes2[i2].textContent);
-                    for(var j = 3; j < textContentNorm.length; j++){
-                        var bit = textContentNorm.substring(0, j);
-                        if (cssTextNorm.split(bit).length === 2) {
-                            var splitNorm = cssTextNorm.indexOf(bit);
-                            for(var k = splitNorm; k < cssText.length; k++){
-                                if (normalizeCssString(cssText.substring(0, k)).length === splitNorm) {
+                    var textContentNorm = normalizeCssString(childNodes2[i2].textContent, _testNoPxNorm);
+                    var jLimit = 100;
+                    var j = 3;
+                    for(; j < textContentNorm.length; j++){
+                        if (// keep consuming css identifiers (to get a decent chunk more quickly)
+                        textContentNorm[j].match(/[a-zA-Z0-9]/) || // substring needs to be unique to this section
+                        textContentNorm.indexOf(textContentNorm.substring(0, j), 1) !== -1) {
+                            continue;
+                        }
+                        break;
+                    }
+                    for(; j < textContentNorm.length; j++){
+                        var startSubstring = textContentNorm.substring(0, j);
+                        var cssNormSplits = cssTextNorm.split(startSubstring);
+                        var splitNorm = -1;
+                        if (cssNormSplits.length === 2) {
+                            splitNorm = cssNormSplits[0].length;
+                        } else if (cssNormSplits.length > 2 && cssNormSplits[0] === "" && childNodes2[i2 - 1].textContent !== "") {
+                            splitNorm = cssTextNorm.indexOf(startSubstring, 1);
+                        } else if (cssNormSplits.length === 1) {
+                            startSubstring = startSubstring.substring(0, startSubstring.length - 1);
+                            cssNormSplits = cssTextNorm.split(startSubstring);
+                            if (cssNormSplits.length <= 1) {
+                                splits.push(cssText);
+                                return splits;
+                            }
+                            j = jLimit + 1;
+                        } else if (j === textContentNorm.length - 1) {
+                            splitNorm = cssTextNorm.indexOf(startSubstring);
+                        }
+                        if (cssNormSplits.length >= 2 && j > jLimit) {
+                            var prevTextContent = childNodes2[i2 - 1].textContent;
+                            if (prevTextContent && typeof prevTextContent === "string") {
+                                var prevMinLength = normalizeCssString(prevTextContent).length;
+                                splitNorm = cssTextNorm.indexOf(startSubstring, prevMinLength);
+                            }
+                            if (splitNorm === -1) {
+                                splitNorm = cssNormSplits[0].length;
+                            }
+                        }
+                        if (splitNorm !== -1) {
+                            var k = Math.floor(splitNorm / normFactor);
+                            for(; k > 0 && k < cssText.length;){
+                                iterCount += 1;
+                                if (iterCount > 50 * childNodes2.length) {
+                                    splits.push(cssText);
+                                    return splits;
+                                }
+                                var normPart = normalizeCssString(cssText.substring(0, k), _testNoPxNorm);
+                                if (normPart.length === splitNorm) {
                                     splits.push(cssText.substring(0, k));
                                     cssText = cssText.substring(k);
+                                    cssTextNorm = cssTextNorm.substring(splitNorm);
                                     break;
+                                } else if (normPart.length < splitNorm) {
+                                    k += Math.max(1, Math.floor((splitNorm - normPart.length) / normFactor));
+                                } else {
+                                    k -= Math.max(1, Math.floor((normPart.length - splitNorm) * normFactor));
                                 }
                             }
                             break;
@@ -1288,7 +1369,7 @@
         } else if (sn.type === NodeType$3.Element) {
             if (slimDOMOptions.script && // script tag
             (sn.tagName === "script" || // (module)preload link
-            sn.tagName === "link" && (sn.attributes.rel === "preload" || sn.attributes.rel === "modulepreload") && sn.attributes.as === "script" || // prefetch link
+            sn.tagName === "link" && (sn.attributes.rel === "preload" && sn.attributes.as === "script" || sn.attributes.rel === "modulepreload") || // prefetch link
             sn.tagName === "link" && sn.attributes.rel === "prefetch" && typeof sn.attributes.href === "string" && extractFileExtension(sn.attributes.href) === "js")) {
                 return true;
             } else if (slimDOMOptions.headFavicon && (sn.tagName === "link" && sn.attributes.rel === "shortcut icon" || sn.tagName === "meta" && (lowerIfExists(sn.attributes.name).match(/^msapplication-tile(image|color)$/) || lowerIfExists(sn.attributes.name) === "application-name" || lowerIfExists(sn.attributes.rel) === "icon" || lowerIfExists(sn.attributes.rel) === "apple-touch-icon" || lowerIfExists(sn.attributes.rel) === "shortcut icon"))) {
@@ -1518,7 +1599,8 @@
             week: true,
             textarea: true,
             select: true,
-            password: true
+            password: true,
+            hidden: true
         } : maskAllInputs === false ? {
             password: true
         } : maskAllInputs;
@@ -10039,6 +10121,30 @@
     function mutationObserverCtor() {
         return getUntaintedPrototype("MutationObserver").constructor;
     }
+    function patch(source, name, replacement) {
+        try {
+            if (!(name in source)) {
+                return function() {};
+            }
+            var original = source[name];
+            var wrapped = replacement(original);
+            if (typeof wrapped === "function") {
+                wrapped.prototype = wrapped.prototype || {};
+                Object.defineProperties(wrapped, {
+                    __rrweb_original__: {
+                        enumerable: false,
+                        value: original
+                    }
+                });
+            }
+            source[name] = wrapped;
+            return function() {
+                source[name] = original;
+            };
+        } catch (e) {
+            return function() {};
+        }
+    }
     var index = {
         childNodes: childNodes,
         parentNode: parentNode,
@@ -10051,7 +10157,8 @@
         shadowRoot: shadowRoot,
         querySelector: querySelector,
         querySelectorAll: querySelectorAll,
-        mutationObserver: mutationObserverCtor
+        mutationObserver: mutationObserverCtor,
+        patch: patch
     };
     function on(type, fn, target) {
         if (target === void 0) target = document;
@@ -10143,30 +10250,6 @@
         return function() {
             return hookSetter(target, key, original || {}, true);
         };
-    }
-    function patch(source, name, replacement) {
-        try {
-            if (!(name in source)) {
-                return function() {};
-            }
-            var original = source[name];
-            var wrapped = replacement(original);
-            if (typeof wrapped === "function") {
-                wrapped.prototype = wrapped.prototype || {};
-                Object.defineProperties(wrapped, {
-                    __rrweb_original__: {
-                        enumerable: false,
-                        value: original
-                    }
-                });
-            }
-            source[name] = wrapped;
-            return function() {
-                source[name] = original;
-            };
-        } catch (e) {
-            return function() {};
-        }
     }
     var nowTimestamp = Date.now;
     if (!/* @__PURE__ */ /[1-9][0-9]{12}/.test(Date.now().toString())) {
@@ -10758,9 +10841,17 @@
                     _this.attributes.push(item);
                     _this.attributeMap.set(textarea, item);
                 }
-                item.attributes.value = Array.from(index.childNodes(textarea), function(cn) {
+                var value = Array.from(index.childNodes(textarea), function(cn) {
                     return index.textContent(cn) || "";
                 }).join("");
+                item.attributes.value = maskInputValue({
+                    element: textarea,
+                    maskInputOptions: _this.maskInputOptions,
+                    tagName: textarea.tagName,
+                    type: getInputType(textarea),
+                    value: value,
+                    maskInputFn: _this.maskInputFn
+                });
             });
             __publicField(this, "processMutation", function(m) {
                 if (isIgnored(m.target, _this.mirror, _this.slimDOMOptions)) {
@@ -13241,7 +13332,8 @@
             week: true,
             textarea: true,
             select: true,
-            password: true
+            password: true,
+            hidden: true
         } : _maskInputOptions !== void 0 ? _maskInputOptions : {
             password: true
         };
@@ -13631,8 +13723,15 @@
                 }, window));
             }
             return function() {
-                handlers.forEach(function(h) {
-                    return h();
+                handlers.forEach(function(handler) {
+                    try {
+                        handler();
+                    } catch (error) {
+                        var msg = String(error).toLowerCase();
+                        if (!msg.includes("cross-origin")) {
+                            console.warn(error);
+                        }
+                    }
                 });
                 processedNodeManager.destroy();
                 recording = false;
@@ -14038,7 +14137,7 @@
 
     var Config = {
         DEBUG: false,
-        LIB_VERSION: '2.64.0'
+        LIB_VERSION: '2.71.0'
     };
 
     /* eslint camelcase: "off", eqeqeq: "off" */
@@ -15523,6 +15622,9 @@
                 return 'Microsoft Edge';
             } else if (_.includes(user_agent, 'FBIOS')) {
                 return 'Facebook Mobile';
+            } else if (_.includes(user_agent, 'Whale/')) {
+                // https://user-agents.net/browsers/whale-browser
+                return 'Whale Browser';
             } else if (_.includes(user_agent, 'Chrome')) {
                 return 'Chrome';
             } else if (_.includes(user_agent, 'CriOS')) {
@@ -15574,7 +15676,8 @@
                 'Android Mobile': /android\s(\d+(\.\d+)?)/,
                 'Samsung Internet': /SamsungBrowser\/(\d+(\.\d+)?)/,
                 'Internet Explorer': /(rv:|MSIE )(\d+(\.\d+)?)/,
-                'Mozilla': /rv:(\d+(\.\d+)?)/
+                'Mozilla': /rv:(\d+(\.\d+)?)/,
+                'Whale Browser': /Whale\/(\d+(\.\d+)?)/
             };
             var regex = versionRegexs[browser];
             if (regex === undefined) {
@@ -15713,6 +15816,20 @@
         return maxlen ? guid.substring(0, maxlen) : guid;
     };
 
+    /**
+     * Generates a W3C traceparent header for easy interop with distributed tracing systems i.e Open Telemetry
+     * https://www.w3.org/TR/trace-context/#traceparent-header
+    */
+    var generateTraceparent = function() {
+        var traceID = _.UUID().replace(/-/g, '');
+        var parentID = _.UUID().replace(/-/g, '').substring(0, 16);
+
+        // Sampled trace
+        var traceFlags = '01';
+
+        return '00-' + traceID + '-' + parentID + '-' + traceFlags;
+    };
+
     // naive way to extract domain name (example.com) from full hostname (my.sub.example.com)
     var SIMPLE_DOMAIN_MATCH_REGEX = /[a-z0-9][a-z0-9-]*\.[a-z]+$/i;
     // this next one attempts to account for some ccSLDs, e.g. extracting oxford.ac.uk from www.oxford.ac.uk
@@ -15832,6 +15949,10 @@
                     return PromisePolyfill.reject(dbOrError);
                 }
             });
+    };
+
+    IDBStorageWrapper.prototype.isInitialized = function () {
+        return !!this.dbPromise;
     };
 
     /**
@@ -16358,6 +16479,10 @@
         return PromisePolyfill.resolve();
     };
 
+    LocalStorageWrapper.prototype.isInitialized = function () {
+        return true;
+    };
+
     LocalStorageWrapper.prototype.setItem = function (key, value) {
         return new PromisePolyfill(_.bind(function (resolve, reject) {
             try {
@@ -16438,7 +16563,7 @@
     };
 
     RequestQueue.prototype.ensureInit = function () {
-        if (this.initialized) {
+        if (this.initialized || !this.usePersistence) {
             return PromisePolyfill.resolve();
         }
 
@@ -17152,6 +17277,13 @@
      * @property {string} replayStartUrl
      */
 
+    /**
+     * @typedef {Object} UserIdInfo
+     * @property {string} distinct_id
+     * @property {string} user_id
+     * @property {string} device_id
+     */
+
 
     /**
      * This class encapsulates a single session recording and its lifecycle.
@@ -17183,10 +17315,9 @@
 
         // disable persistence if localStorage is not supported
         // request-queue will automatically disable persistence if indexedDB fails to initialize
-        var usePersistence = localStorageSupported(options.sharedLockStorage, true);
+        var usePersistence = localStorageSupported(options.sharedLockStorage, true) && !this.getConfig('disable_persistence');
 
         // each replay has its own batcher key to avoid conflicts between rrweb events of different recordings
-        // this will be important when persistence is introduced
         this.batcherKey = '__mprec_' + this.getConfig('name') + '_' + this.getConfig('token') + '_' + this.replayId;
         this.queueStorage = new IDBStorageWrapper(RECORDING_EVENTS_STORE_NAME);
         this.batcher = new RequestBatcher(this.batcherKey, {
@@ -17205,6 +17336,30 @@
             enqueueThrottleMs: RECORD_ENQUEUE_THROTTLE_MS,
             sharedLockTimeoutMS: 10 * 1000,
         });
+    };
+
+    /**
+     * @returns {UserIdInfo}
+     */
+    SessionRecording.prototype.getUserIdInfo = function () {
+        if (this.finalFlushUserIdInfo) {
+            return this.finalFlushUserIdInfo;
+        }
+
+        var userIdInfo = {
+            'distinct_id': String(this._mixpanel.get_distinct_id()),
+        };
+
+        // send ID management props if they exist
+        var deviceId = this._mixpanel.get_property('$device_id');
+        if (deviceId) {
+            userIdInfo['$device_id'] = deviceId;
+        }
+        var userId = this._mixpanel.get_property('$user_id');
+        if (userId) {
+            userIdInfo['$user_id'] = userId;
+        }
+        return userIdInfo;
     };
 
     SessionRecording.prototype.unloadPersistedData = function () {
@@ -17331,6 +17486,9 @@
     };
 
     SessionRecording.prototype.stopRecording = function (skipFlush) {
+        // store the user ID info in case this is getting called in mixpanel.reset()
+        this.finalFlushUserIdInfo = this.getUserIdInfo();
+
         if (!this.isRrwebStopped()) {
             try {
                 this._stopRecording();
@@ -17441,8 +17599,8 @@
                 retryAfter: response.headers.get('Retry-After')
             });
         }.bind(this);
-
-        win['fetch'](this.getConfig('api_host') + '/' + this.getConfig('api_routes')['record'] + '?' + new URLSearchParams(reqParams), {
+        var apiHost = (this._mixpanel.get_api_host && this._mixpanel.get_api_host('record')) || this.getConfig('api_host');
+        win['fetch'](apiHost + '/' + this.getConfig('api_routes')['record'] + '?' + new URLSearchParams(reqParams), {
             'method': 'POST',
             'headers': {
                 'Authorization': 'Basic ' + btoa(this.getConfig('token') + ':'),
@@ -17496,7 +17654,6 @@
                 '$current_url': this.batchStartUrl,
                 '$lib_version': Config.LIB_VERSION,
                 'batch_start_time': batchStartTime / 1000,
-                'distinct_id': String(this._mixpanel.get_distinct_id()),
                 'mp_lib': 'web',
                 'replay_id': replayId,
                 'replay_length_ms': replayLengthMs,
@@ -17505,16 +17662,7 @@
                 'seq': this.seqNo
             };
             var eventsJson = JSON.stringify(data);
-
-            // send ID management props if they exist
-            var deviceId = this._mixpanel.get_property('$device_id');
-            if (deviceId) {
-                reqParams['$device_id'] = deviceId;
-            }
-            var userId = this._mixpanel.get_property('$user_id');
-            if (userId) {
-                reqParams['$user_id'] = userId;
-            }
+            Object.assign(reqParams, this.getUserIdInfo());
 
             if (CompressionStream) {
                 var jsonStream = new Blob([eventsJson], {type: 'application/json'}).stream();
@@ -17550,10 +17698,15 @@
      * Makes sure that only one tab can be recording at a time.
      */
     var RecordingRegistry = function (options) {
+        /** @type {IDBStorageWrapper} */
         this.idb = new IDBStorageWrapper(RECORDING_REGISTRY_STORE_NAME);
         this.errorReporter = options.errorReporter;
         this.mixpanelInstance = options.mixpanelInstance;
         this.sharedLockStorage = options.sharedLockStorage;
+    };
+
+    RecordingRegistry.prototype.isPersistenceEnabled = function() {
+        return !this.mixpanelInstance.get_config('disable_persistence');
     };
 
     RecordingRegistry.prototype.handleError = function (err) {
@@ -17564,6 +17717,10 @@
      * @param {import('./session-recording').SerializedRecording} serializedRecording
      */
     RecordingRegistry.prototype.setActiveRecording = function (serializedRecording) {
+        if (!this.isPersistenceEnabled()) {
+            return PromisePolyfill.resolve();
+        }
+
         var tabId = serializedRecording['tabId'];
         if (!tabId) {
             console.warn('No tab ID is set, cannot persist recording metadata.');
@@ -17581,6 +17738,10 @@
      * @returns {Promise<import('./session-recording').SerializedRecording>}
      */
     RecordingRegistry.prototype.getActiveRecording = function () {
+        if (!this.isPersistenceEnabled()) {
+            return PromisePolyfill.resolve(null);
+        }
+
         return this.idb.init()
             .then(function () {
                 return this.idb.getItem(this.mixpanelInstance.get_tab_id());
@@ -17592,8 +17753,16 @@
     };
 
     RecordingRegistry.prototype.clearActiveRecording = function () {
-        // mark recording as expired instead of deleting it in case the page unloads mid-flush and doesn't make it to ingestion.
-        // this will ensure the next pageload will flush the remaining events, but not try to continue the recording.
+        if (this.isPersistenceEnabled()) {
+            // mark recording as expired instead of deleting it in case the page unloads mid-flush and doesn't make it to ingestion.
+            // this will ensure the next pageload will flush the remaining events, but not try to continue the recording.
+            return this.markActiveRecordingExpired();
+        } else {
+            return this.deleteActiveRecording();
+        }
+    };
+
+    RecordingRegistry.prototype.markActiveRecordingExpired = function () {
         return this.getActiveRecording()
             .then(function (serializedRecording) {
                 if (serializedRecording) {
@@ -17604,11 +17773,25 @@
             .catch(this.handleError.bind(this));
     };
 
+    RecordingRegistry.prototype.deleteActiveRecording = function () {
+        // avoid initializing IDB if this registry instance hasn't already written a recording
+        if (this.idb.isInitialized()) {
+            return this.idb.removeItem(this.mixpanelInstance.get_tab_id())
+                .catch(this.handleError.bind(this));
+        } else {
+            return PromisePolyfill.resolve();
+        }
+    };
+
     /**
      * Flush any inactive recordings from the registry to minimize data loss.
      * The main idea here is that we can flush remaining rrweb events on the next page load if a tab is closed mid-batch.
      */
     RecordingRegistry.prototype.flushInactiveRecordings = function () {
+        if (!this.isPersistenceEnabled()) {
+            return PromisePolyfill.resolve([]);
+        }
+
         return this.idb.init()
             .then(function() {
                 return this.idb.getAll();
@@ -17659,6 +17842,7 @@
         this._flushInactivePromise = this.recordingRegistry.flushInactiveRecordings();
 
         this.activeRecording = null;
+        this.stopRecordingInProgress = false;
     };
 
     MixpanelRecorder.prototype.startRecording = function(options) {
@@ -17707,19 +17891,26 @@
     };
 
     MixpanelRecorder.prototype.stopRecording = function() {
-        var stopPromise = this._stopCurrentRecording(false);
-        this.recordingRegistry.clearActiveRecording();
-        this.activeRecording = null;
-        return stopPromise;
+        // Prevents activeSerializedRecording from being reused when stopping the recording.
+        this.stopRecordingInProgress = true;
+        return this._stopCurrentRecording(false, true).then(function() {
+            return this.recordingRegistry.clearActiveRecording();
+        }.bind(this)).then(function() {
+            this.stopRecordingInProgress = false;
+        }.bind(this));
     };
 
     MixpanelRecorder.prototype.pauseRecording = function() {
         return this._stopCurrentRecording(false);
     };
 
-    MixpanelRecorder.prototype._stopCurrentRecording = function(skipFlush) {
+    MixpanelRecorder.prototype._stopCurrentRecording = function(skipFlush, disableActiveRecording) {
         if (this.activeRecording) {
-            return this.activeRecording.stopRecording(skipFlush);
+            var stopRecordingPromise = this.activeRecording.stopRecording(skipFlush);
+            if (disableActiveRecording) {
+                this.activeRecording = null;
+            }
+            return stopRecordingPromise;
         }
         return PromisePolyfill.resolve();
     };
@@ -17732,7 +17923,7 @@
 
         return this.recordingRegistry.getActiveRecording()
             .then(function (activeSerializedRecording) {
-                if (activeSerializedRecording) {
+                if (activeSerializedRecording && !this.stopRecordingInProgress) {
                     return this.startRecording({activeSerializedRecording: activeSerializedRecording});
                 } else if (startNewIfInactive) {
                     return this.startRecording({shouldStopBatcher: false});
@@ -17774,11 +17965,17 @@
     var EV_CHANGE = 'change';
     var EV_CLICK = 'click';
     var EV_HASHCHANGE = 'hashchange';
+    var EV_INPUT = 'input';
+    var EV_LOAD = 'load';
     var EV_MP_LOCATION_CHANGE = 'mp_locationchange';
     var EV_POPSTATE = 'popstate';
     // TODO scrollend isn't available in Safari: document or polyfill?
     var EV_SCROLLEND = 'scrollend';
+    var EV_SCROLL = 'scroll';
+    var EV_SELECT = 'select';
     var EV_SUBMIT = 'submit';
+    var EV_TOGGLE = 'toggle';
+    var EV_VISIBILITYCHANGE = 'visibilitychange';
 
     var CLICK_EVENT_PROPS = [
         'clientX', 'clientY',
@@ -17794,6 +17991,77 @@
         'aria-label', 'aria-labelledby', 'aria-describedby',
         'href', 'name', 'role', 'title', 'type'
     ];
+
+    var INTERACTIVE_ARIA_ROLES = {
+        'button': true,
+        'checkbox': true,
+        'combobox': true,
+        'grid': true,
+        'link': true,
+        'listbox': true,
+        'menu': true,
+        'menubar': true,
+        'menuitem': true,
+        'menuitemcheckbox': true,
+        'menuitemradio': true,
+        'navigation': true,
+        'option': true,
+        'radio': true,
+        'radiogroup': true,
+        'searchbox': true,
+        'slider': true,
+        'spinbutton': true,
+        'switch': true,
+        'tab': true,
+        'tablist': true,
+        'textbox': true,
+        'tree': true,
+        'treegrid': true,
+        'treeitem': true
+    };
+
+    var ALWAYS_NON_INTERACTIVE_TAGS = {
+        // Document metadata
+        'base': true,
+        'head': true,
+        'html': true,
+        'link': true,
+        'meta': true,
+        'script': true,
+        'style': true,
+        'title': true,
+        // Text formatting
+        'br': true,
+        'hr': true,
+        'wbr': true,
+        // Other
+        'noscript': true,
+        'picture': true,
+        'source': true,
+        'template': true,
+        'track': true
+    };
+
+    // Common container tags that need additional checks
+    var TEXT_CONTAINER_TAGS = {
+        'article': true,
+        'div': true,
+        'h1': true,
+        'h2': true,
+        'h3': true,
+        'h4': true,
+        'h5': true,
+        'h6': true,
+        'p': true,
+        'section': true,
+        'span': true
+    };
+
+    var EVENT_HANDLER_ATTRIBUTES = [
+        'onclick', 'onmousedown', 'onmouseup', 'onpointerdown', 'onpointerup', 'ontouchend', 'ontouchstart'
+    ];
+
+    var MAX_DEPTH = 5;
 
     var logger$1 = console_with_prefix('autocapture');
 
@@ -17936,7 +18204,9 @@
                     '$elements':  elementsJson,
                     '$el_attr__href': href,
                     '$viewportHeight': Math.max(docElement['clientHeight'], win['innerHeight'] || 0),
-                    '$viewportWidth': Math.max(docElement['clientWidth'], win['innerWidth'] || 0)
+                    '$viewportWidth': Math.max(docElement['clientWidth'], win['innerWidth'] || 0),
+                    '$pageHeight': document$1['body']['offsetHeight'] || 0,
+                    '$pageWidth': document$1['body']['offsetWidth'] || 0,
                 };
                 _.each(captureExtraAttrs, function(attr) {
                     if (!blockAttrsSet[attr] && target.hasAttribute(attr)) {
@@ -18160,6 +18430,10 @@
         }
     }
 
+    function weakSetSupported() {
+        return typeof WeakSet !== 'undefined';
+    }
+
     /*
      * Check whether a DOM event should be "tracked" or if it may contain sensitive data
      * using a variety of heuristics.
@@ -18285,6 +18559,525 @@
         return true;
     }
 
+    /**
+     * Creates a cross-browser compatible scroll end function with appropriate event listener.
+     * For browsers that support scrollend, returns the original function with scrollend event.
+     * For browsers without scrollend support, returns a debounced function that triggers
+     * 100ms after the last scroll event to simulate scrollend behavior.
+     * @param {Function} originalFunction - The function to call when scrolling ends
+     * @returns {Object} Object containing listener function and eventType string
+     * @returns {Function} returns.listener - The wrapped function to use as event listener
+     * @returns {string} returns.eventType - The event type to listen for ('scrollend' or 'scroll')
+     */
+    function getPolyfillScrollEndFunction(originalFunction) {
+        var supportsScrollEnd = 'onscrollend' in win;
+        var polyfillFunction = safewrap(originalFunction);
+        var polyfillEvent = EV_SCROLLEND;
+        if (!supportsScrollEnd) {
+            // Polyfill for browsers without scrollend support: wait 100ms after the last scroll event
+            // https://developer.chrome.com/blog/scrollend-a-new-javascript-event
+            var scrollTimer = null;
+            var scrollDelayMs = 100;
+
+            polyfillFunction = safewrap(function() {
+                clearTimeout(scrollTimer);
+                scrollTimer = setTimeout(originalFunction, scrollDelayMs);
+            });
+
+            polyfillEvent = EV_SCROLL;
+        }
+
+        return {
+            listener: polyfillFunction,
+            eventType: polyfillEvent
+        };
+    }
+
+    function hasInlineEventHandlers(element) {
+        for (var i = 0; i < EVENT_HANDLER_ATTRIBUTES.length; i++) {
+            if (element.hasAttribute(EVENT_HANDLER_ATTRIBUTES[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function hasInteractiveAriaRole(element) {
+        var role = element.getAttribute('role');
+        if (!role) return false;
+
+        // Handle invalid markup where multiple roles might be specified
+        // Only the first token is recognized per ARIA spec
+        var primaryRole = role.trim().split(/\s+/)[0].toLowerCase();
+
+        return INTERACTIVE_ARIA_ROLES[primaryRole];
+    }
+
+    function hasAnyInteractivityIndicators(element) {
+        var tagName = element.tagName.toLowerCase();
+
+        // Check for interactive HTML elements
+        if (tagName === 'button' ||
+            tagName === 'input' ||
+            tagName === 'select' ||
+            tagName === 'textarea' ||
+            tagName === 'details' ||
+            tagName === 'dialog') {
+            return true;
+        }
+
+        if (element.isContentEditable) {
+            return true;
+        }
+
+        if (element.onclick || element.onmousedown || element.onmouseup || element.ontouchstart || element.ontouchend) {
+            return true;
+        }
+
+        if (hasInlineEventHandlers(element)) {
+            return true;
+        }
+
+        if (hasInteractiveAriaRole(element)) {
+            return true;
+        }
+
+        if (tagName === 'a' && element.hasAttribute('href')) {
+            return true;
+        }
+
+        if (element.hasAttribute('tabindex')) {
+            return true;
+        }
+
+        return false;
+    }
+
+
+    function isDefinitelyNonInteractive(element) {
+        if (!element || !element.tagName) {
+            return true;
+        }
+
+        var tagName = element.tagName.toLowerCase();
+
+        // These tags are definitely non-interactive
+        if (ALWAYS_NON_INTERACTIVE_TAGS[tagName]) {
+            return true;
+        }
+
+        // For all other elements, we can only be certain they're non-interactive if they lack ALL indicators of interactivity
+        // Check for any signs of interactivity
+        if (hasAnyInteractivityIndicators(element)) {
+            return false;
+        }
+
+        // Check parent chain for interactive context
+        var parent = element.parentElement;
+        var depth = 0;
+
+        while (parent && depth < MAX_DEPTH) {
+            if (hasAnyInteractivityIndicators(parent)) {
+                return false; // Element is inside an interactive parent
+            }
+
+            if (parent.getRootNode && parent.getRootNode() !== document$1) {
+                var root = parent.getRootNode();
+                if (root.host && hasAnyInteractivityIndicators(root.host)) {
+                    return false; // Inside an interactive shadow host
+                }
+            }
+
+            parent = parent.parentElement;
+            depth++;
+        }
+
+        // Pure text containers without any interactive context
+        if (TEXT_CONTAINER_TAGS[tagName]) {
+            // These are non-interactive ONLY if they have no interactive indicators (already checked as part of hasAnyInteractivityIndicators)
+            return true;
+        }
+
+        // Default: we can't be certain it's non-interactive
+        return false;
+    }
+
+    /** @const */ var DEFAULT_RAGE_CLICK_THRESHOLD_PX = 30;
+    /** @const */ var DEFAULT_RAGE_CLICK_TIMEOUT_MS = 1000;
+    /** @const */ var DEFAULT_RAGE_CLICK_CLICK_COUNT = 4;
+
+    function RageClickTracker() {
+        this.clicks = [];
+    }
+
+    RageClickTracker.prototype.isRageClick = function(x, y, options) {
+        options = options || {};
+        var thresholdPx = options['threshold_px'] || DEFAULT_RAGE_CLICK_THRESHOLD_PX;
+        var timeoutMs = options['timeout_ms'] || DEFAULT_RAGE_CLICK_TIMEOUT_MS;
+        var clickCount = options['click_count'] || DEFAULT_RAGE_CLICK_CLICK_COUNT;
+        var timestamp = Date.now();
+
+        var lastClick = this.clicks[this.clicks.length - 1];
+        if (
+            lastClick &&
+            timestamp - lastClick.timestamp < timeoutMs &&
+            Math.sqrt(Math.pow(x - lastClick.x, 2) + Math.pow(y - lastClick.y, 2)) < thresholdPx
+        ) {
+            this.clicks.push({ x: x, y: y, timestamp: timestamp });
+            if (this.clicks.length >= clickCount) {
+                this.clicks = [];
+                return true;
+            }
+        } else {
+            this.clicks = [{ x: x, y: y, timestamp: timestamp }];
+        }
+        return false;
+    };
+
+    function ShadowDOMObserver(changeCallback, observerConfig) {
+        this.changeCallback = changeCallback || function() {};
+        this.observerConfig = observerConfig;
+
+        this.observedShadowRoots = null;
+        this.shadowObservers = [];
+    }
+
+    ShadowDOMObserver.prototype.getEventTarget = function(event) {
+        if (!this.observedShadowRoots) {
+            return;
+        }
+        var path = this.getComposedPath(event);
+        if (path && path.length) {
+            return path[0];
+        }
+
+        return event['target'] || event['srcElement'];
+    };
+
+
+    ShadowDOMObserver.prototype.getComposedPath = function(event) {
+        if ('composedPath' in event) {
+            return event['composedPath']();
+        }
+
+        return [];
+    };
+    ShadowDOMObserver.prototype.observeFromEvent = function(event) {
+        if (!this.observedShadowRoots) {
+            return;
+        }
+
+        var path = this.getComposedPath(event);
+
+        // Check each element in path for shadow roots
+        for (var i = 0; i < path.length; i++) {
+            var element = path[i];
+
+            if (element && element.shadowRoot) {
+                this.observeShadowRoot(element.shadowRoot);
+            }
+        }
+    };
+
+
+    ShadowDOMObserver.prototype.observeShadowRoot = function(shadowRoot) {
+        if (!this.observedShadowRoots || this.observedShadowRoots.has(shadowRoot)) {
+            return;
+        }
+
+        var self = this;
+
+        try {
+            this.observedShadowRoots.add(shadowRoot);
+
+            var observer = new window.MutationObserver(function() {
+                self.changeCallback();
+            });
+
+            observer.observe(shadowRoot, this.observerConfig);
+            this.shadowObservers.push(observer);
+        } catch (e) {
+            logger$1.critical('Error while observing shadow root', e);
+        }
+    };
+
+
+    ShadowDOMObserver.prototype.start = function() {
+        if (this.observedShadowRoots) {
+            return;
+        }
+
+        if (!weakSetSupported()) {
+            logger$1.critical('Shadow DOM observation unavailable: WeakSet not supported');
+            return;
+        }
+
+        this.observedShadowRoots = new WeakSet();
+    };
+
+    ShadowDOMObserver.prototype.stop = function() {
+        if (!this.observedShadowRoots) {
+            return;
+        }
+
+        for (var i = 0; i < this.shadowObservers.length; i++) {
+            try {
+                this.shadowObservers[i].disconnect();
+            } catch (e) {
+                logger$1.critical('Error while disconnecting shadow DOM observer', e);
+            }
+        }
+        this.shadowObservers = [];
+        this.observedShadowRoots = null;
+    };
+
+    /** @const */ var DEFAULT_DEAD_CLICK_TIMEOUT_MS = 500;
+    /** @const */ var INTERACTION_EVENTS = [EV_CHANGE, EV_INPUT, EV_SUBMIT, EV_SELECT, EV_TOGGLE];
+    /** @const */ var LAYOUT_EVENTS = [EV_SCROLLEND];
+    /** @const */ var NAVIGATION_EVENTS = [EV_HASHCHANGE];
+    /** @const */ var MUTATION_OBSERVER_CONFIG = {
+        characterData: true,
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'hidden', 'checked', 'selected', 'value', 'display', 'visibility']
+    };
+
+
+    function DeadClickTracker(onDeadClickCallback) {
+        this.eventListeners = [];
+        this.mutationObserver = null;
+        this.shadowDOMObserver = null;
+
+        this.isTracking = false;
+        this.lastChangeEventTimestamp = 0;
+        this.pendingClicks = [];
+        this.onDeadClickCallback = onDeadClickCallback;
+        this.processingActive = false;
+        this.processingTimeout = null;
+    }
+
+
+    DeadClickTracker.prototype.addClick = function(event) {
+        var element = this.shadowDOMObserver && this.shadowDOMObserver.getEventTarget(event);
+
+        if (!element) {
+            element = event['target'] || event['srcElement'];
+        }
+
+        if (!element || isDefinitelyNonInteractive(element)) {
+            return false;
+        }
+
+        if (this.shadowDOMObserver) {
+            this.shadowDOMObserver.observeFromEvent(event);
+        }
+        this.pendingClicks.push({
+            element: element,
+            event: event,
+            timestamp: Date.now()
+        });
+        return true;
+    };
+
+    DeadClickTracker.prototype.trackClick = function(event, config) {
+        if (!this.isTracking) {
+            return false;
+        }
+
+        var added = this.addClick(event);
+        if (added) {
+            this.triggerProcessing(config);
+        }
+        return added;
+    };
+
+    DeadClickTracker.prototype.getDeadClicks = function(config) {
+        if (this.pendingClicks.length === 0) {
+            return [];
+        }
+
+        var timeoutMs = config['timeout_ms'];
+        var now = Date.now();
+        var clicksToEvaluate = this.pendingClicks.slice(); // Copy array
+        this.pendingClicks = []; // Clear original
+
+        var deadClicks = [];
+
+        for (var i = 0; i < clicksToEvaluate.length; i++) {
+            var click = clicksToEvaluate[i];
+
+            if (now - click.timestamp >= timeoutMs) {
+                // Click has exceeded timeout, check if it's dead by looking for changes after this specific click
+                if (!this.hasChangesAfter(click.timestamp)) {
+                    deadClicks.push(click);
+                }
+            } else {
+                // Still pending - add back
+                this.pendingClicks.push(click);
+            }
+        }
+
+        return deadClicks;
+    };
+
+    DeadClickTracker.prototype.hasChangesAfter = function(timestamp) {
+        // 100ms tolerance for race condition between when we record the click and the change event
+        return this.lastChangeEventTimestamp >= (timestamp - 100);
+    };
+
+    DeadClickTracker.prototype.recordChangeEvent = function() {
+        this.lastChangeEventTimestamp = Date.now();
+    };
+
+    DeadClickTracker.prototype.triggerProcessing = function(config) {
+        // Prevent multiple concurrent processing chains
+        if (this.processingActive) {
+            return;
+        }
+        this.processingActive = true;
+        this.processRecursively(config);
+    };
+
+    DeadClickTracker.prototype.processRecursively = function(config) {
+        if (!this.isTracking || !this.onDeadClickCallback) {
+            this.processingActive = false;
+            return;
+        }
+
+        var timeoutMs = config['timeout_ms'];
+        var self = this;
+
+        this.processingTimeout = setTimeout(function() {
+            if (!self.processingActive) {
+                return;
+            }
+
+            var deadClicks = self.getDeadClicks(config);
+
+            for (var i = 0; i < deadClicks.length; i++) {
+                self.onDeadClickCallback(deadClicks[i].event);
+            }
+
+            if (self.pendingClicks.length > 0) {
+                self.processRecursively(config);
+            } else {
+                self.processingActive = false;
+            }
+        }, timeoutMs);
+    };
+
+    DeadClickTracker.prototype.startTracking = function() {
+        if (this.isTracking) {
+            return;
+        }
+
+        this.isTracking = true;
+
+        var self = this;
+
+        INTERACTION_EVENTS.forEach(function(event) {
+            var handler = function() {
+                self.recordChangeEvent();
+            };
+            document.addEventListener(event, handler, { capture: true, passive: true });
+            self.eventListeners.push({ target: document, event: event, handler: handler, options: { capture: true, passive: true } });
+        });
+        NAVIGATION_EVENTS.forEach(function(event) {
+            var handler = function() {
+                self.recordChangeEvent();
+            };
+            window.addEventListener(event, handler);
+            self.eventListeners.push({ target: window, event: event, handler: handler });
+        });
+        LAYOUT_EVENTS.forEach(function(event) {
+            var handler = function() {
+                self.recordChangeEvent();
+            };
+            window.addEventListener(event, handler, { passive: true });
+            self.eventListeners.push({ target: window, event: event, handler: handler, options: { passive: true } });
+        });
+        var selectionHandler = function() {
+            self.recordChangeEvent();
+        };
+        document.addEventListener('selectionchange', selectionHandler);
+        self.eventListeners.push({ target: document, event: 'selectionchange', handler: selectionHandler });
+
+        // Set up MutationObserver
+        if (window.MutationObserver) {
+            try {
+                this.mutationObserver = new window.MutationObserver(function() {
+                    self.recordChangeEvent();
+                });
+
+                this.mutationObserver.observe(document.body || document.documentElement, MUTATION_OBSERVER_CONFIG);
+            } catch (e) {
+                logger$1.critical('Error while setting up mutation observer', e);
+            }
+        }
+
+        // Set up Shadow DOM observer
+        if (window.customElements) {
+            try {
+                this.shadowDOMObserver = new ShadowDOMObserver(
+                    function() {
+                        self.recordChangeEvent();
+                    },
+                    MUTATION_OBSERVER_CONFIG
+                );
+                this.shadowDOMObserver.start();
+            } catch (e) {
+                logger$1.critical('Error while setting up shadow DOM observer', e);
+                this.shadowDOMObserver = null;
+            }
+        }
+    };
+
+    DeadClickTracker.prototype.stopTracking = function() {
+        if (!this.isTracking) {
+            return;
+        }
+
+        this.isTracking = false;
+        this.pendingClicks = [];
+        this.lastChangeEventTimestamp = 0;
+        this.processingActive = false;
+
+        if (this.processingTimeout) {
+            clearTimeout(this.processingTimeout);
+            this.processingTimeout = null;
+        }
+
+        // Remove all event listeners
+        for (var i = 0; i < this.eventListeners.length; i++) {
+            var listener = this.eventListeners[i];
+            try {
+                listener.target.removeEventListener(listener.event, listener.handler, listener.options);
+            } catch (e) {
+                logger$1.critical('Error while removing event listener', e);
+            }
+        }
+        this.eventListeners = [];
+
+        if (this.mutationObserver) {
+            try {
+                this.mutationObserver.disconnect();
+            } catch (e) {
+                logger$1.critical('Error while disconnecting mutation observer', e);
+            }
+            this.mutationObserver = null;
+        }
+
+        if (this.shadowDOMObserver) {
+            try {
+                this.shadowDOMObserver.stop();
+            } catch (e) {
+                logger$1.critical('Error while stopping shadow DOM observer', e);
+            }
+            this.shadowDOMObserver = null;
+        }
+    };
+
     var AUTOCAPTURE_CONFIG_KEY = 'autocapture';
     var LEGACY_PAGEVIEW_CONFIG_KEY = 'track_pageview';
 
@@ -18304,9 +19097,12 @@
     var CONFIG_SCROLL_CAPTURE_ALL = 'scroll_capture_all';
     var CONFIG_SCROLL_CHECKPOINTS = 'scroll_depth_percent_checkpoints';
     var CONFIG_TRACK_CLICK = 'click';
+    var CONFIG_TRACK_DEAD_CLICK = 'dead_click';
     var CONFIG_TRACK_INPUT = 'input';
     var CONFIG_TRACK_PAGEVIEW = 'pageview';
+    var CONFIG_TRACK_RAGE_CLICK = 'rage_click';
     var CONFIG_TRACK_SCROLL = 'scroll';
+    var CONFIG_TRACK_PAGE_LEAVE = 'page_leave';
     var CONFIG_TRACK_SUBMIT = 'submit';
 
     var CONFIG_DEFAULTS$1 = {};
@@ -18321,9 +19117,12 @@
     CONFIG_DEFAULTS$1[CONFIG_SCROLL_CAPTURE_ALL] = false;
     CONFIG_DEFAULTS$1[CONFIG_SCROLL_CHECKPOINTS] = [25, 50, 75, 100];
     CONFIG_DEFAULTS$1[CONFIG_TRACK_CLICK] = true;
+    CONFIG_DEFAULTS$1[CONFIG_TRACK_DEAD_CLICK] = true;
     CONFIG_DEFAULTS$1[CONFIG_TRACK_INPUT] = true;
     CONFIG_DEFAULTS$1[CONFIG_TRACK_PAGEVIEW] = PAGEVIEW_OPTION_FULL_URL;
+    CONFIG_DEFAULTS$1[CONFIG_TRACK_RAGE_CLICK] = true;
     CONFIG_DEFAULTS$1[CONFIG_TRACK_SCROLL] = true;
+    CONFIG_DEFAULTS$1[CONFIG_TRACK_PAGE_LEAVE] = false;
     CONFIG_DEFAULTS$1[CONFIG_TRACK_SUBMIT] = true;
 
     var DEFAULT_PROPS = {
@@ -18331,9 +19130,12 @@
     };
 
     var MP_EV_CLICK = '$mp_click';
+    var MP_EV_DEAD_CLICK = '$mp_dead_click';
     var MP_EV_INPUT = '$mp_input_change';
+    var MP_EV_RAGE_CLICK = '$mp_rage_click';
     var MP_EV_SCROLL = '$mp_scroll';
     var MP_EV_SUBMIT = '$mp_submit';
+    var MP_EV_PAGE_LEAVE = '$mp_page_leave';
 
     /**
      * Autocapture: manages automatic event tracking
@@ -18341,6 +19143,9 @@
      */
     var Autocapture = function(mp) {
         this.mp = mp;
+        this.maxScrollViewDepth = 0;
+        this.hasTrackedScrollSession = false;
+        this.previousScrollHeight = 0;
     };
 
     Autocapture.prototype.init = function() {
@@ -18348,12 +19153,15 @@
             logger$1.critical('Autocapture unavailable: missing required DOM APIs');
             return;
         }
-
+        this.initPageListeners();
         this.initPageviewTracking();
         this.initClickTracking();
+        this.initDeadClickTracking();
         this.initInputTracking();
         this.initScrollTracking();
         this.initSubmitTracking();
+        this.initRageClickTracking();
+        this.initPageLeaveTracking();
     };
 
     Autocapture.prototype.getFullConfig = function() {
@@ -18432,6 +19240,12 @@
             return;
         }
 
+        var isCapturedForHeatMap = this.mp.is_recording_heatmap_data() && (
+            (mpEventName === MP_EV_CLICK && !this.getConfig(CONFIG_TRACK_CLICK)) ||
+            (mpEventName === MP_EV_RAGE_CLICK && !this._getClickTrackingConfig(CONFIG_TRACK_RAGE_CLICK)) ||
+            (mpEventName === MP_EV_DEAD_CLICK && !this._getClickTrackingConfig(CONFIG_TRACK_DEAD_CLICK))
+        );
+
         var props = getPropsForDOMEvent(ev, {
             allowElementCallback: this.getConfig(CONFIG_ALLOW_ELEMENT_CALLBACK),
             allowSelectors: this.getConfig(CONFIG_ALLOW_SELECTORS),
@@ -18440,12 +19254,126 @@
             blockSelectors: this.getConfig(CONFIG_BLOCK_SELECTORS),
             captureExtraAttrs: this.getConfig(CONFIG_CAPTURE_EXTRA_ATTRS),
             captureTextContent: this.getConfig(CONFIG_CAPTURE_TEXT_CONTENT),
-            capturedForHeatMap: mpEventName === MP_EV_CLICK && !this.getConfig(CONFIG_TRACK_CLICK) && this.mp.is_recording_heatmap_data(),
+            capturedForHeatMap: isCapturedForHeatMap,
         });
         if (props) {
             _.extend(props, DEFAULT_PROPS);
             this.mp.track(mpEventName, props);
         }
+    };
+
+    Autocapture.prototype.initPageListeners = function() {
+        win.removeEventListener(EV_POPSTATE, this.listenerPopstate);
+        win.removeEventListener(EV_HASHCHANGE, this.listenerHashchange);
+
+        if (!this.pageviewTrackingConfig() && !this.getConfig(CONFIG_TRACK_PAGE_LEAVE) && !this.mp.get_config('record_heatmap_data')) {
+            // These are all the configs that use these listeners
+            return;
+        }
+
+        this.listenerPopstate = function() {
+            win.dispatchEvent(new Event(EV_MP_LOCATION_CHANGE));
+        };
+        this.listenerHashchange = function() {
+            win.dispatchEvent(new Event(EV_MP_LOCATION_CHANGE));
+        };
+
+        win.addEventListener(EV_POPSTATE, this.listenerPopstate);
+        win.addEventListener(EV_HASHCHANGE, this.listenerHashchange);
+        var nativePushState = win.history.pushState;
+        if (typeof nativePushState === 'function') {
+            win.history.pushState = function(state, unused, url) {
+                nativePushState.call(win.history, state, unused, url);
+                win.dispatchEvent(new Event(EV_MP_LOCATION_CHANGE));
+            };
+        }
+        var nativeReplaceState = win.history.replaceState;
+        if (typeof nativeReplaceState === 'function') {
+            win.history.replaceState = function(state, unused, url) {
+                nativeReplaceState.call(win.history, state, unused, url);
+                win.dispatchEvent(new Event(EV_MP_LOCATION_CHANGE));
+            };
+        }
+    };
+
+    Autocapture.prototype._getClickTrackingConfig = function(configKey) {
+        var config = this.getConfig(configKey);
+
+        if (!config) {
+            return null; // click tracking disabled
+        }
+
+        if (config === true) {
+            return {}; // use defaults
+        }
+
+        if (typeof config === 'object') {
+            return config; // use custom configuration
+        }
+
+        return {}; // fallback to defaults for any other truthy value
+    };
+
+    Autocapture.prototype._trackPageLeave = function(ev, currentUrl, currentScrollHeight) {
+        if (this.hasTrackedScrollSession) {
+            // User has navigated away already ending their impression.
+            return;
+        }
+        this.hasTrackedScrollSession = true;
+        var viewportHeight = Math.max(document$1.documentElement.clientHeight, win.innerHeight || 0);
+        var scrollPercentage = Math.round(Math.max(this.maxScrollViewDepth - viewportHeight, 0) / (currentScrollHeight - viewportHeight) * 100);
+        var foldLinePercentage = Math.round((viewportHeight / currentScrollHeight) * 100);
+        if (currentScrollHeight <= viewportHeight) {
+            // If the content fits within the viewport, consider it fully scrolled
+            scrollPercentage = 100;
+            foldLinePercentage = 100;
+        }
+
+        var props = _.extend({
+            '$max_scroll_view_depth': this.maxScrollViewDepth,
+            '$max_scroll_percentage': scrollPercentage,
+            '$fold_line_percentage': foldLinePercentage,
+            '$scroll_height':  currentScrollHeight,
+            '$event_type': ev.type,
+            '$current_url': currentUrl || _.info.currentUrl(),
+            '$viewportHeight': viewportHeight, // This is the fold line
+            '$viewportWidth':  Math.max(document$1.documentElement.clientWidth, win.innerWidth || 0),
+        }, DEFAULT_PROPS);
+
+        if (this.mp.is_recording_heatmap_data() && !this.getConfig(CONFIG_TRACK_PAGE_LEAVE)) {
+            props['$captured_for_heatmap'] = true;
+        }
+
+        // Send with beacon transport to ensure event is sent before unload
+        this.mp.track(MP_EV_PAGE_LEAVE, props, {transport: 'sendBeacon'});
+    };
+
+    Autocapture.prototype._initScrollDepthTracking = function() {
+        win.removeEventListener(EV_SCROLL, this.listenerScrollDepth);
+        win.removeEventListener(EV_SCROLLEND, this.listenerScrollDepth);
+
+        if (!this.mp.get_config('record_heatmap_data')) {
+            return;
+        }
+
+        logger$1.log('Initializing scroll depth tracking');
+
+        this.maxScrollViewDepth = Math.max(document$1.documentElement.clientHeight, win.innerHeight || 0);
+
+        var updateScrollDepth = function() {
+            if (this.currentUrlBlocked()) {
+                return;
+            }
+            var scrollViewHeight = Math.max(document$1.documentElement.clientHeight, win.innerHeight || 0) + win.scrollY;
+            if (scrollViewHeight > this.maxScrollViewDepth) {
+                this.maxScrollViewDepth = scrollViewHeight;
+            }
+            this.previousScrollHeight = document$1.body.scrollHeight;
+        }.bind(this);
+
+        var scrollEndPolyfill = getPolyfillScrollEndFunction(updateScrollDepth);
+        this.listenerScrollDepth = scrollEndPolyfill.listener;
+        win.addEventListener(scrollEndPolyfill.eventType, this.listenerScrollDepth);
     };
 
     Autocapture.prototype.initClickTracking = function() {
@@ -18456,12 +19384,49 @@
         }
         logger$1.log('Initializing click tracking');
 
-        this.listenerClick = win.addEventListener(EV_CLICK, function(ev) {
+        this.listenerClick = function(ev) {
             if (!this.getConfig(CONFIG_TRACK_CLICK) && !this.mp.is_recording_heatmap_data()) {
                 return;
             }
             this.trackDomEvent(ev, MP_EV_CLICK);
-        }.bind(this));
+        }.bind(this);
+        win.addEventListener(EV_CLICK, this.listenerClick);
+    };
+
+    Autocapture.prototype.initDeadClickTracking = function() {
+        var deadClickConfig = this._getClickTrackingConfig(CONFIG_TRACK_DEAD_CLICK);
+
+        if (!deadClickConfig && !this.mp.get_config('record_heatmap_data')) {
+            this.stopDeadClickTracking();
+            return;
+        }
+
+        logger$1.log('Initializing dead click tracking');
+        if (!this._deadClickTracker) {
+            this._deadClickTracker = new DeadClickTracker(function(deadClickEvent) {
+                this.trackDomEvent(deadClickEvent, MP_EV_DEAD_CLICK);
+            }.bind(this));
+            this._deadClickTracker.startTracking();
+        }
+
+        if (!this.listenerDeadClick) {
+            this.listenerDeadClick = function(ev) {
+                var currentDeadClickConfig = this._getClickTrackingConfig(CONFIG_TRACK_DEAD_CLICK);
+                if (!currentDeadClickConfig && !this.mp.is_recording_heatmap_data()) {
+                    return;
+                }
+                if (this.currentUrlBlocked()) {
+                    return;
+                }
+                // Normalize config to ensure timeout_ms is always set
+                var normalizedConfig = currentDeadClickConfig || {};
+                if (!normalizedConfig['timeout_ms']) {
+                    normalizedConfig['timeout_ms'] = DEFAULT_DEAD_CLICK_TIMEOUT_MS;
+                }
+                this._deadClickTracker.trackClick(ev, normalizedConfig);
+            }.bind(this);
+            win.addEventListener(EV_CLICK, this.listenerDeadClick);
+        }
     };
 
     Autocapture.prototype.initInputTracking = function() {
@@ -18472,17 +19437,16 @@
         }
         logger$1.log('Initializing input tracking');
 
-        this.listenerChange = win.addEventListener(EV_CHANGE, function(ev) {
+        this.listenerChange = function(ev) {
             if (!this.getConfig(CONFIG_TRACK_INPUT)) {
                 return;
             }
             this.trackDomEvent(ev, MP_EV_INPUT);
-        }.bind(this));
+        }.bind(this);
+        win.addEventListener(EV_CHANGE, this.listenerChange);
     };
 
     Autocapture.prototype.initPageviewTracking = function() {
-        win.removeEventListener(EV_POPSTATE, this.listenerPopstate);
-        win.removeEventListener(EV_HASHCHANGE, this.listenerHashchange);
         win.removeEventListener(EV_MP_LOCATION_CHANGE, this.listenerLocationchange);
 
         if (!this.pageviewTrackingConfig()) {
@@ -18499,27 +19463,7 @@
             previousTrackedUrl = _.info.currentUrl();
         }
 
-        this.listenerPopstate = win.addEventListener(EV_POPSTATE, function() {
-            win.dispatchEvent(new Event(EV_MP_LOCATION_CHANGE));
-        });
-        this.listenerHashchange = win.addEventListener(EV_HASHCHANGE, function() {
-            win.dispatchEvent(new Event(EV_MP_LOCATION_CHANGE));
-        });
-        var nativePushState = win.history.pushState;
-        if (typeof nativePushState === 'function') {
-            win.history.pushState = function(state, unused, url) {
-                nativePushState.call(win.history, state, unused, url);
-                win.dispatchEvent(new Event(EV_MP_LOCATION_CHANGE));
-            };
-        }
-        var nativeReplaceState = win.history.replaceState;
-        if (typeof nativeReplaceState === 'function') {
-            win.history.replaceState = function(state, unused, url) {
-                nativeReplaceState.call(win.history, state, unused, url);
-                win.dispatchEvent(new Event(EV_MP_LOCATION_CHANGE));
-            };
-        }
-        this.listenerLocationchange = win.addEventListener(EV_MP_LOCATION_CHANGE, safewrap(function() {
+        this.listenerLocationchange = safewrap(function() {
             if (this.currentUrlBlocked()) {
                 return;
             }
@@ -18546,11 +19490,44 @@
                     logger$1.log('Path change: re-initializing scroll depth checkpoints');
                 }
             }
-        }.bind(this)));
+        }.bind(this));
+        win.addEventListener(EV_MP_LOCATION_CHANGE, this.listenerLocationchange);
+    };
+
+    Autocapture.prototype.initRageClickTracking = function() {
+        win.removeEventListener(EV_CLICK, this.listenerRageClick);
+
+        var rageClickConfig = this._getClickTrackingConfig(CONFIG_TRACK_RAGE_CLICK);
+        if (!rageClickConfig && !this.mp.get_config('record_heatmap_data')) {
+            return;
+        }
+
+        logger$1.log('Initializing rage click tracking');
+        if (!this._rageClickTracker) {
+            this._rageClickTracker = new RageClickTracker();
+        }
+
+        this.listenerRageClick = function(ev) {
+            var currentRageClickConfig = this._getClickTrackingConfig(CONFIG_TRACK_RAGE_CLICK);
+            if (!currentRageClickConfig && !this.mp.is_recording_heatmap_data()) {
+                return;
+            }
+
+            if (this.currentUrlBlocked()) {
+                return;
+            }
+
+            if (this._rageClickTracker.isRageClick(ev['pageX'], ev['pageY'], currentRageClickConfig)) {
+                this.trackDomEvent(ev, MP_EV_RAGE_CLICK);
+            }
+        }.bind(this);
+        win.addEventListener(EV_CLICK, this.listenerRageClick);
     };
 
     Autocapture.prototype.initScrollTracking = function() {
         win.removeEventListener(EV_SCROLLEND, this.listenerScroll);
+        win.removeEventListener(EV_SCROLL, this.listenerScroll);
+
 
         if (!this.getConfig(CONFIG_TRACK_SCROLL)) {
             return;
@@ -18558,7 +19535,7 @@
         logger$1.log('Initializing scroll tracking');
         this.lastScrollCheckpoint = 0;
 
-        this.listenerScroll = win.addEventListener(EV_SCROLLEND, safewrap(function() {
+        var scrollTrackFunction = function() {
             if (!this.getConfig(CONFIG_TRACK_SCROLL)) {
                 return;
             }
@@ -18597,7 +19574,11 @@
             if (shouldTrack) {
                 this.mp.track(MP_EV_SCROLL, props);
             }
-        }.bind(this)));
+        }.bind(this);
+
+        var scrollEndPolyfill = getPolyfillScrollEndFunction(scrollTrackFunction);
+        this.listenerScroll = scrollEndPolyfill.listener;
+        win.addEventListener(scrollEndPolyfill.eventType, this.listenerScroll);
     };
 
     Autocapture.prototype.initSubmitTracking = function() {
@@ -18608,18 +19589,81 @@
         }
         logger$1.log('Initializing submit tracking');
 
-        this.listenerSubmit = win.addEventListener(EV_SUBMIT, function(ev) {
+        this.listenerSubmit = function(ev) {
             if (!this.getConfig(CONFIG_TRACK_SUBMIT)) {
                 return;
             }
             this.trackDomEvent(ev, MP_EV_SUBMIT);
+        }.bind(this);
+        win.addEventListener(EV_SUBMIT, this.listenerSubmit);
+    };
+
+    Autocapture.prototype.initPageLeaveTracking = function() {
+        // Capture page_leave both when the user navigates away from the page (visibilitychange) as well
+        // as when they navigate to a different page within the SPA (popstate/pushstate/hashchange).
+        document$1.removeEventListener(EV_VISIBILITYCHANGE, this.listenerPageLeaveVisibilitychange);
+        win.removeEventListener(EV_MP_LOCATION_CHANGE, this.listenerPageLeaveLocationchange);
+        win.removeEventListener(EV_LOAD, this.listenerPageLoad);
+
+        if (!this.getConfig(CONFIG_TRACK_PAGE_LEAVE) && !this.mp.get_config('record_heatmap_data')) {
+            return;
+        }
+
+        logger$1.log('Initializing page visibility tracking.');
+        this._initScrollDepthTracking();
+        var previousTrackedUrl = _.info.currentUrl();
+
+        // Initialize previousScrollHeight on `load` which handles async loading
+        // https://developer.mozilla.org/en-US/docs/Web/API/Window/load_event
+        this.listenerPageLoad = function() {
+            this.previousScrollHeight = document$1.body.scrollHeight;
+        }.bind(this);
+        win.addEventListener(EV_LOAD, this.listenerPageLoad);
+
+        // Track page navigation events similar to how initPageviewTracking does it
+        this.listenerPageLeaveLocationchange = safewrap(function(ev) {
+            if (this.currentUrlBlocked()) {
+                return;
+            }
+
+            var currentUrl = _.info.currentUrl();
+            // Track all URL changes including query string or fragment changes as separate scroll sessions
+            var shouldTrack = currentUrl !== previousTrackedUrl;
+
+            if (shouldTrack) {
+                this._trackPageLeave(ev, previousTrackedUrl, this.previousScrollHeight);
+                previousTrackedUrl = currentUrl;
+                // Fragment navigation should call scroll(end) and trigger listener, don't add window.scrollY here.
+                this.maxScrollViewDepth = Math.max(document$1.documentElement.clientHeight, win.innerHeight || 0);
+                this.previousScrollHeight = document$1.body.scrollHeight;
+                this.hasTrackedScrollSession = false;
+            }
         }.bind(this));
+        win.addEventListener(EV_MP_LOCATION_CHANGE, this.listenerPageLeaveLocationchange);
+
+        this.listenerPageLeaveVisibilitychange = function(ev) {
+            if (document$1.hidden) {
+                this._trackPageLeave(ev, previousTrackedUrl, this.previousScrollHeight);
+            }
+        }.bind(this);
+        document$1.addEventListener(EV_VISIBILITYCHANGE, this.listenerPageLeaveVisibilitychange);
+    };
+
+    Autocapture.prototype.stopDeadClickTracking = function() {
+        if (this.listenerDeadClick) {
+            win.removeEventListener(EV_CLICK, this.listenerDeadClick);
+            this.listenerDeadClick = null;
+        }
+
+        if (this._deadClickTracker) {
+            this._deadClickTracker.stopTracking();
+            this._deadClickTracker = null;
+        }
     };
 
     // TODO integrate error_reporter from mixpanel instance
     safewrapClass(Autocapture);
 
-    var fetch = win['fetch'];
     var logger = console_with_prefix('flags');
 
     var FLAGS_CONFIG_KEY = 'flags';
@@ -18633,13 +19677,16 @@
      * @constructor
      */
     var FeatureFlagManager = function(initOptions) {
+        this.fetch = win['fetch'];
+        this.getFullApiRoute = initOptions.getFullApiRoute;
         this.getMpConfig = initOptions.getConfigFunc;
-        this.getDistinctId = initOptions.getDistinctIdFunc;
+        this.setMpConfig = initOptions.setConfigFunc;
+        this.getMpProperty = initOptions.getPropertyFunc;
         this.track = initOptions.trackingFunc;
     };
 
     FeatureFlagManager.prototype.init = function() {
-        if (!minApisSupported()) {
+        if (!this.minApisSupported()) {
             logger.critical('Feature Flags unavailable: missing minimum required APIs');
             return;
         }
@@ -18667,35 +19714,61 @@
         return this.getFullConfig()[key];
     };
 
-    FeatureFlagManager.prototype.isEnabled = function() {
+    FeatureFlagManager.prototype.isSystemEnabled = function() {
         return !!this.getMpConfig(FLAGS_CONFIG_KEY);
     };
 
-    FeatureFlagManager.prototype.areFeaturesReady = function() {
-        if (!this.isEnabled()) {
+    FeatureFlagManager.prototype.updateContext = function(newContext, options) {
+        if (!this.isSystemEnabled()) {
+            logger.critical('Feature Flags not enabled, cannot update context');
+            return Promise.resolve();
+        }
+
+        var ffConfig = this.getMpConfig(FLAGS_CONFIG_KEY);
+        if (!_.isObject(ffConfig)) {
+            ffConfig = {};
+        }
+        var oldContext = (options && options['replace']) ? {} : this.getConfig(CONFIG_CONTEXT);
+        ffConfig[CONFIG_CONTEXT] = _.extend({}, oldContext, newContext);
+
+        this.setMpConfig(FLAGS_CONFIG_KEY, ffConfig);
+        return this.fetchFlags();
+    };
+
+    FeatureFlagManager.prototype.areFlagsReady = function() {
+        if (!this.isSystemEnabled()) {
             logger.error('Feature Flags not enabled');
         }
         return !!this.flags;
     };
 
     FeatureFlagManager.prototype.fetchFlags = function() {
-        if (!this.isEnabled()) {
-            return;
+        if (!this.isSystemEnabled()) {
+            return Promise.resolve();
         }
 
-        var distinctId = this.getDistinctId();
+        var distinctId = this.getMpProperty('distinct_id');
+        var deviceId = this.getMpProperty('$device_id');
+        var traceparent = generateTraceparent();
         logger.log('Fetching flags for distinct ID: ' + distinctId);
-        var reqParams = {
-            'context': _.extend({'distinct_id': distinctId}, this.getConfig(CONFIG_CONTEXT))
-        };
-        this.fetchPromise = win['fetch'](this.getMpConfig('api_host') + '/' + this.getMpConfig('api_routes')['flags'], {
-            'method': 'POST',
+
+        var context = _.extend({'distinct_id': distinctId, 'device_id': deviceId}, this.getConfig(CONFIG_CONTEXT));
+        var searchParams = new URLSearchParams();
+        searchParams.set('context', JSON.stringify(context));
+        searchParams.set('token', this.getMpConfig('token'));
+        searchParams.set('mp_lib', 'web');
+        searchParams.set('$lib_version', Config.LIB_VERSION);
+        var url = this.getFullApiRoute() + '?' + searchParams.toString();
+
+        this._fetchInProgressStartTime = Date.now();
+        this.fetchPromise = this.fetch.call(win, url, {
+            'method': 'GET',
             'headers': {
                 'Authorization': 'Basic ' + btoa(this.getMpConfig('token') + ':'),
-                'Content-Type': 'application/octet-stream'
-            },
-            'body': JSON.stringify(reqParams)
+                'traceparent': traceparent
+            }
         }).then(function(response) {
+            this.markFetchComplete();
             return response.json().then(function(responseBody) {
                 var responseFlags = responseBody['flags'];
                 if (!responseFlags) {
@@ -18705,17 +19778,38 @@
                 _.each(responseFlags, function(data, key) {
                     flags.set(key, {
                         'key': data['variant_key'],
-                        'data': data['variant_value']
+                        'value': data['variant_value'],
+                        'experiment_id': data['experiment_id'],
+                        'is_experiment_active': data['is_experiment_active'],
+                        'is_qa_tester': data['is_qa_tester']
                     });
                 });
                 this.flags = flags;
+                this._traceparent = traceparent;
             }.bind(this)).catch(function(error) {
+                this.markFetchComplete();
                 logger.error(error);
-            });
-        }.bind(this)).catch(function() {});
+            }.bind(this));
+        }.bind(this)).catch(function(error) {
+            this.markFetchComplete();
+            logger.error(error);
+        }.bind(this));
+
+        return this.fetchPromise;
     };
 
-    FeatureFlagManager.prototype.getFeature = function(featureName, fallback) {
+    FeatureFlagManager.prototype.markFetchComplete = function() {
+        if (!this._fetchInProgressStartTime) {
+            logger.error('Fetch in progress started time not set, cannot mark fetch complete');
+            return;
+        }
+        this._fetchStartTime = this._fetchInProgressStartTime;
+        this._fetchCompleteTime = Date.now();
+        this._fetchLatency = this._fetchCompleteTime - this._fetchStartTime;
+        this._fetchInProgressStartTime = null;
+    };
+
+    FeatureFlagManager.prototype.getVariant = function(featureName, fallback) {
         if (!this.fetchPromise) {
             return new Promise(function(resolve) {
                 logger.critical('Feature Flags not initialized');
@@ -18724,15 +19818,15 @@
         }
 
         return this.fetchPromise.then(function() {
-            return this.getFeatureSync(featureName, fallback);
+            return this.getVariantSync(featureName, fallback);
         }.bind(this)).catch(function(error) {
             logger.error(error);
             return fallback;
         });
     };
 
-    FeatureFlagManager.prototype.getFeatureSync = function(featureName, fallback) {
-        if (!this.areFeaturesReady()) {
+    FeatureFlagManager.prototype.getVariantSync = function(featureName, fallback) {
+        if (!this.areFlagsReady()) {
             logger.log('Flags not loaded yet');
             return fallback;
         }
@@ -18745,31 +19839,37 @@
         return feature;
     };
 
-    FeatureFlagManager.prototype.getFeatureData = function(featureName, fallbackValue) {
-        return this.getFeature(featureName, {'data': fallbackValue}).then(function(feature) {
-            return feature['data'];
+    FeatureFlagManager.prototype.getVariantValue = function(featureName, fallbackValue) {
+        return this.getVariant(featureName, {'value': fallbackValue}).then(function(feature) {
+            return feature['value'];
         }).catch(function(error) {
             logger.error(error);
             return fallbackValue;
         });
     };
 
-    FeatureFlagManager.prototype.getFeatureDataSync = function(featureName, fallbackValue) {
-        return this.getFeatureSync(featureName, {'data': fallbackValue})['data'];
+    // TODO remove deprecated method
+    FeatureFlagManager.prototype.getFeatureData = function(featureName, fallbackValue) {
+        logger.critical('mixpanel.flags.get_feature_data() is deprecated and will be removed in a future release. Use mixpanel.flags.get_variant_value() instead.');
+        return this.getVariantValue(featureName, fallbackValue);
     };
 
-    FeatureFlagManager.prototype.isFeatureEnabled = function(featureName, fallbackValue) {
-        return this.getFeatureData(featureName).then(function() {
-            return this.isFeatureEnabledSync(featureName, fallbackValue);
+    FeatureFlagManager.prototype.getVariantValueSync = function(featureName, fallbackValue) {
+        return this.getVariantSync(featureName, {'value': fallbackValue})['value'];
+    };
+
+    FeatureFlagManager.prototype.isEnabled = function(featureName, fallbackValue) {
+        return this.getVariantValue(featureName).then(function() {
+            return this.isEnabledSync(featureName, fallbackValue);
         }.bind(this)).catch(function(error) {
             logger.error(error);
             return fallbackValue;
         });
     };
 
-    FeatureFlagManager.prototype.isFeatureEnabledSync = function(featureName, fallbackValue) {
+    FeatureFlagManager.prototype.isEnabledSync = function(featureName, fallbackValue) {
         fallbackValue = fallbackValue || false;
-        var val = this.getFeatureDataSync(featureName, fallbackValue);
+        var val = this.getVariantValueSync(featureName, fallbackValue);
         if (val !== true && val !== false) {
             logger.error('Feature flag "' + featureName + '" value: ' + val + ' is not a boolean; returning fallback value: ' + fallbackValue);
             val = fallbackValue;
@@ -18782,29 +19882,50 @@
             return;
         }
         this.trackedFeatures.add(featureName);
-        this.track('$experiment_started', {
+
+        var trackingProperties = {
             'Experiment name': featureName,
             'Variant name': feature['key'],
-            '$experiment_type': 'feature_flag'
-        });
+            '$experiment_type': 'feature_flag',
+            'Variant fetch start time': new Date(this._fetchStartTime).toISOString(),
+            'Variant fetch complete time': new Date(this._fetchCompleteTime).toISOString(),
+            'Variant fetch latency (ms)': this._fetchLatency,
+            'Variant fetch traceparent': this._traceparent,
+        };
+
+        if (feature['experiment_id'] !== 'undefined') {
+            trackingProperties['$experiment_id'] = feature['experiment_id'];
+        }
+        if (feature['is_experiment_active'] !== 'undefined') {
+            trackingProperties['$is_experiment_active'] = feature['is_experiment_active'];
+        }
+        if (feature['is_qa_tester'] !== 'undefined') {
+            trackingProperties['$is_qa_tester'] = feature['is_qa_tester'];
+        }
+
+        this.track('$experiment_started', trackingProperties);
     };
 
-    function minApisSupported() {
-        return !!fetch &&
+    FeatureFlagManager.prototype.minApisSupported = function() {
+        return !!this.fetch &&
           typeof Promise !== 'undefined' &&
           typeof Map !== 'undefined' &&
           typeof Set !== 'undefined';
-    }
+    };
 
     safewrapClass(FeatureFlagManager);
 
-    FeatureFlagManager.prototype['are_features_ready'] = FeatureFlagManager.prototype.areFeaturesReady;
-    FeatureFlagManager.prototype['get_feature'] = FeatureFlagManager.prototype.getFeature;
+    FeatureFlagManager.prototype['are_flags_ready'] = FeatureFlagManager.prototype.areFlagsReady;
+    FeatureFlagManager.prototype['get_variant'] = FeatureFlagManager.prototype.getVariant;
+    FeatureFlagManager.prototype['get_variant_sync'] = FeatureFlagManager.prototype.getVariantSync;
+    FeatureFlagManager.prototype['get_variant_value'] = FeatureFlagManager.prototype.getVariantValue;
+    FeatureFlagManager.prototype['get_variant_value_sync'] = FeatureFlagManager.prototype.getVariantValueSync;
+    FeatureFlagManager.prototype['is_enabled'] = FeatureFlagManager.prototype.isEnabled;
+    FeatureFlagManager.prototype['is_enabled_sync'] = FeatureFlagManager.prototype.isEnabledSync;
+    FeatureFlagManager.prototype['update_context'] = FeatureFlagManager.prototype.updateContext;
+
+    // Deprecated method
     FeatureFlagManager.prototype['get_feature_data'] = FeatureFlagManager.prototype.getFeatureData;
-    FeatureFlagManager.prototype['get_feature_data_sync'] = FeatureFlagManager.prototype.getFeatureDataSync;
-    FeatureFlagManager.prototype['get_feature_sync'] = FeatureFlagManager.prototype.getFeatureSync;
-    FeatureFlagManager.prototype['is_feature_enabled'] = FeatureFlagManager.prototype.isFeatureEnabled;
-    FeatureFlagManager.prototype['is_feature_enabled_sync'] = FeatureFlagManager.prototype.isFeatureEnabledSync;
 
     /* eslint camelcase: "off" */
 
@@ -19223,7 +20344,7 @@
         return this._mixpanel._track_or_batch({
             type: 'groups',
             data: date_encoded_data,
-            endpoint: this._get_config('api_host') + '/' +  this._get_config('api_routes')['groups'],
+            endpoint: this._mixpanel.get_api_host('groups') + '/' +  this._get_config('api_routes')['groups'],
             batcher: this._mixpanel.request_batchers.groups
         }, callback);
     };
@@ -19500,18 +20621,8 @@
      * @param {Function} [callback] If provided, the callback will be called when the server responds
      * @deprecated
      */
-    MixpanelPeople.prototype.track_charge = addOptOutCheckMixpanelPeople(function(amount, properties, callback) {
-        if (!_.isNumber(amount)) {
-            amount = parseFloat(amount);
-            if (isNaN(amount)) {
-                console$1.error('Invalid value passed to mixpanel.people.track_charge - must be a number');
-                return;
-            }
-        }
-
-        return this.append('$transactions', _.extend({
-            '$amount': amount
-        }, properties), callback);
+    MixpanelPeople.prototype.track_charge = addOptOutCheckMixpanelPeople(function() {
+        console$1.error('mixpanel.people.track_charge() is deprecated and no longer has any effect.');
     });
 
     /*
@@ -19585,7 +20696,7 @@
         return this._mixpanel._track_or_batch({
             type: 'people',
             data: date_encoded_data,
-            endpoint: this._get_config('api_host') + '/' +  this._get_config('api_routes')['engage'],
+            endpoint: this._mixpanel.get_api_host('people') + '/' +  this._get_config('api_routes')['engage'],
             batcher: this._mixpanel.request_batchers.people
         }, callback);
     };
@@ -20222,7 +21333,9 @@
      */
     var DEFAULT_CONFIG = {
         'api_host':                          'https://api-js.mixpanel.com',
+        'api_hosts':                         {},
         'api_routes':                        DEFAULT_API_ROUTES,
+        'api_extra_query_params':            {},
         'api_method':                        'POST',
         'api_transport':                     'XHR',
         'api_payload_format':                PAYLOAD_TYPE_BASE64,
@@ -20270,7 +21383,7 @@
         'batch_autostart':                   true,
         'hooks':                             {},
         'record_block_class':                new RegExp('^(mp-block|fs-exclude|amp-block|rr-block|ph-no-capture)$'),
-        'record_block_selector':             'img, video',
+        'record_block_selector':             'img, video, audio',
         'record_canvas':                     false,
         'record_collect_fonts':              false,
         'record_heatmap_data':               false,
@@ -20490,8 +21603,12 @@
         }
 
         this.flags = new FeatureFlagManager({
+            getFullApiRoute: _.bind(function() {
+                return this.get_api_host('flags') + '/' + this.get_config('api_routes')['flags'];
+            }, this),
             getConfigFunc: _.bind(this.get_config, this),
-            getDistinctIdFunc: _.bind(this.get_distinct_id, this),
+            setConfigFunc: _.bind(this.set_config, this),
+            getPropertyFunc: _.bind(this.get_property, this),
             trackingFunc: _.bind(this.track, this)
         });
         this.flags.init();
@@ -20509,7 +21626,9 @@
      * This is primarily used for session recording, where data must be isolated to the current tab.
      */
     MixpanelLib.prototype._init_tab_id = function() {
-        if (_.sessionStorage.is_supported()) {
+        if (this.get_config('disable_persistence')) {
+            console$1.log('Tab ID initialization skipped due to disable_persistence config');
+        } else if (_.sessionStorage.is_supported()) {
             try {
                 var key_suffix = this.get_config('name') + '_' + this.get_config('token');
                 var tab_id_key = 'mp_tab_id_' + key_suffix;
@@ -20543,6 +21662,11 @@
     };
 
     MixpanelLib.prototype._should_load_recorder = function () {
+        if (this.get_config('disable_persistence')) {
+            console$1.log('Load recorder check skipped due to disable_persistence config');
+            return Promise.resolve(false);
+        }
+
         var recording_registry_idb = new IDBStorageWrapper(RECORDING_REGISTRY_STORE_NAME);
         var tab_id = this.get_tab_id();
         return recording_registry_idb.init()
@@ -20606,20 +21730,23 @@
 
     MixpanelLib.prototype.stop_session_recording = function () {
         if (this._recorder) {
-            this._recorder['stopRecording']();
+            return this._recorder['stopRecording']();
         }
+        return Promise.resolve();
     };
 
     MixpanelLib.prototype.pause_session_recording = function () {
         if (this._recorder) {
-            this._recorder['pauseRecording']();
+            return this._recorder['pauseRecording']();
         }
+        return Promise.resolve();
     };
 
     MixpanelLib.prototype.resume_session_recording = function () {
         if (this._recorder) {
-            this._recorder['resumeRecording']();
+            return this._recorder['resumeRecording']();
         }
+        return Promise.resolve();
     };
 
     MixpanelLib.prototype.is_recording_heatmap_data = function () {
@@ -20810,6 +21937,8 @@
             delete data['data'];
         }
 
+        _.extend(data, this.get_config('api_extra_query_params'));
+
         url += '?' + _.HTTPBuildQuery(data);
 
         var lib = this;
@@ -20972,11 +22101,10 @@
 
     MixpanelLib.prototype.get_batcher_configs = function() {
         var queue_prefix = '__mpq_' + this.get_config('token');
-        var api_routes = this.get_config('api_routes');
         this._batcher_configs = this._batcher_configs || {
-            events: {type: 'events', endpoint: '/' + api_routes['track'], queue_key: queue_prefix + '_ev'},
-            people: {type: 'people', endpoint: '/' + api_routes['engage'], queue_key: queue_prefix + '_pp'},
-            groups: {type: 'groups', endpoint: '/' + api_routes['groups'], queue_key: queue_prefix + '_gr'}
+            events: {type: 'events', api_name: 'track', queue_key: queue_prefix + '_ev'},
+            people: {type: 'people', api_name: 'engage', queue_key: queue_prefix + '_pp'},
+            groups: {type: 'groups', api_name: 'groups', queue_key: queue_prefix + '_gr'}
         };
         return this._batcher_configs;
     };
@@ -20990,8 +22118,9 @@
                         libConfig: this['config'],
                         errorReporter: this.get_config('error_reporter'),
                         sendRequestFunc: _.bind(function(data, options, cb) {
+                            var api_routes = this.get_config('api_routes');
                             this._send_request(
-                                this.get_config('api_host') + attrs.endpoint,
+                                this.get_api_host(attrs.api_name) + '/' + api_routes[attrs.api_name],
                                 this._encode_data_for_request(data),
                                 options,
                                 this._prepare_callback(cb, data)
@@ -21217,7 +22346,7 @@
         var ret = this._track_or_batch({
             type: 'events',
             data: data,
-            endpoint: this.get_config('api_host') + '/' + this.get_config('api_routes')['track'],
+            endpoint: this.get_api_host('events') + '/' + this.get_config('api_routes')['track'],
             batcher: this.request_batchers.events,
             should_send_immediately: should_send_immediately,
             send_request_options: options
@@ -21719,6 +22848,7 @@
      * Useful for clearing data when a user logs out.
      */
     MixpanelLib.prototype.reset = function() {
+        this.stop_session_recording();
         this['persistence'].clear();
         this._flags.identify_called = false;
         var uuid = _.UUID();
@@ -21726,6 +22856,7 @@
             'distinct_id': DEVICE_ID_PREFIX + uuid,
             '$device_id': uuid
         }, '');
+        this._check_and_start_session_recording();
     };
 
     /**
@@ -22036,6 +23167,16 @@
         return this['persistence'].load_prop([property_name]);
     };
 
+    /**
+     * Get the API host for a specific endpoint type, falling back to the default api_host if not specified
+     *
+     * @param {String} endpoint_type The type of endpoint (e.g., "events", "people", "groups")
+     * @returns {String} The API host to use for this endpoint
+     */
+    MixpanelLib.prototype.get_api_host = function(endpoint_type) {
+        return this.get_config('api_hosts')[endpoint_type] || this.get_config('api_host');
+    };
+
     MixpanelLib.prototype.toString = function() {
         var name = this.get_config('name');
         if (name !== PRIMARY_INSTANCE_NAME) {
@@ -22331,6 +23472,7 @@
     MixpanelLib.prototype['name_tag']                           = MixpanelLib.prototype.name_tag;
     MixpanelLib.prototype['set_config']                         = MixpanelLib.prototype.set_config;
     MixpanelLib.prototype['get_config']                         = MixpanelLib.prototype.get_config;
+    MixpanelLib.prototype['get_api_host']                       = MixpanelLib.prototype.get_api_host;
     MixpanelLib.prototype['get_property']                       = MixpanelLib.prototype.get_property;
     MixpanelLib.prototype['get_distinct_id']                    = MixpanelLib.prototype.get_distinct_id;
     MixpanelLib.prototype['toString']                           = MixpanelLib.prototype.toString;
