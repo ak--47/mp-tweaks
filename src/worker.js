@@ -1,6 +1,8 @@
+// @ts-nocheck
 /** @typedef {import('./types').ChromeStorage} PersistentStorage */
 /** @type {PersistentStorage} */
 let STORAGE;
+
 let cachedFlags = null;
 
 let track = noop;
@@ -17,24 +19,24 @@ const originalClearTimeout = clearTimeout;
 
 // Override global functions to track active intervals/timeouts
 if (typeof globalThis !== 'undefined') {
-	globalThis.setInterval = function(callback, delay, ...args) {
+	globalThis.setInterval = function (callback, delay, ...args) {
 		const id = originalSetInterval.call(this, callback, delay, ...args);
 		activeIntervals.add(id);
 		return id;
 	};
 
-	globalThis.setTimeout = function(callback, delay, ...args) {
+	globalThis.setTimeout = function (callback, delay, ...args) {
 		const id = originalSetTimeout.call(this, callback, delay, ...args);
 		activeTimeouts.add(id);
 		return id;
 	};
 
-	globalThis.clearInterval = function(id) {
+	globalThis.clearInterval = function (id) {
 		activeIntervals.delete(id);
 		return originalClearInterval.call(this, id);
 	};
 
-	globalThis.clearTimeout = function(id) {
+	globalThis.clearTimeout = function (id) {
 		activeTimeouts.delete(id);
 		return originalClearTimeout.call(this, id);
 	};
@@ -64,7 +66,7 @@ function cleanupAllTimers() {
 	activeTimeouts.clear();
 }
 
-const APP_VERSION = `2.46`;
+const APP_VERSION = `2.48`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -273,6 +275,7 @@ chrome.tabs.onUpdated.addListener(async function (tabId, changeInfo, tab) {
 });
 
 // closed tabs
+
 chrome.tabs.onRemoved.addListener(function (tabId, removeInfo) {
 	if (tabId === STORAGE?.sessionReplay?.tabId) {
 		STORAGE.sessionReplay.enabled = false;
@@ -281,19 +284,24 @@ chrome.tabs.onRemoved.addListener(function (tabId, removeInfo) {
 });
 
 // Extension lifecycle cleanup
-chrome.runtime.onSuspend.addListener(function() {
+chrome.runtime.onSuspend.addListener(function () {
 	console.log('mp-tweaks: extension suspending, cleaning up timers');
 	cleanupAllTimers();
 });
 
 // Clean up on extension shutdown
+
 if (typeof process !== 'undefined' && process.on) {
+	
 	process.on('exit', cleanupAllTimers);
+	
 	process.on('SIGINT', cleanupAllTimers);
+	
 	process.on('SIGTERM', cleanupAllTimers);
 }
 
 // messages from extension
+
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 	console.log(`mp-tweaks: got ${request?.action} message`);
 
@@ -475,16 +483,21 @@ async function handleRequest(request) {
 			// if (token && tabId) result = await startSessionReplay(token, tabId);
 			await runScript(reload);
 			await updateIconToBeActive(STORAGE.sessionReplay.enabled);
+			console.log('mp-tweaks: session replay started');
+			result = true;
 			break;
 
 		case 'stop-replay':
 			console.log('mp-tweaks: stopping session replay');
+			await runScript(killReplayAndResetMixpanel, [], { world: "MAIN" }, { id: STORAGE?.sessionReplay?.tabId || request?.data?.tabId });
 			await resetCSP();
 			STORAGE.sessionReplay.enabled = false;
 			result = false;
 			await setStorage(STORAGE);
+			await sleep(1000); // give it a moment to finish
 			await runScript(reload);
 			await updateIconToBeActive(STORAGE.sessionReplay.enabled);
+			console.log('mp-tweaks: session replay stopped');
 			break;
 
 		//update headers and call updateHeaders
@@ -751,6 +764,7 @@ async function updateIconToBeActive(enabled) {
 
 
 async function makeProject() {
+	
 	const excludedOrgs = [
 		1, // Mixpanel
 		328203, // Mixpanel Demo
@@ -811,6 +825,154 @@ async function startSessionReplay(token, tabId) {
 
 }
 
+
+function killReplayAndResetMixpanel() {
+	console.log('mp-tweaks: killing session replay and resetting mixpanel');
+	try {
+		if (window.mixpanel) {
+			if (mixpanel?.stop_session_recording) mixpanel.stop_session_recording();
+			// if (mixpanel?.track) mixpanel.track('end of user', {}, { transport: 'sendBeacon' });
+			if (mixpanel?.reset) mixpanel.reset();
+			console.log('mp-tweaks: session replay stopped and mixpanel reset');
+		}
+	} catch (e) {
+		console.error('mp-tweaks: error stopping session replay or resetting mixpanel:', e);
+	}
+
+	try {
+		// Clear all localStorage items that start with 'mp_'
+		const keysToRemove = [];
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i);
+			if (key && key.startsWith('mp_')) {
+				keysToRemove.push(key);
+			}
+		}
+		keysToRemove.forEach(key => {
+			localStorage.removeItem(key);
+			console.log('mp-tweaks: removed localStorage key:', key);
+		});
+
+		console.log(`mp-tweaks: cleared ${keysToRemove.length} localStorage items`);
+	}
+	catch (error) {
+		console.error('mp-tweaks: error stopping session replay:', error);
+	}
+
+
+	try {
+		window.SESSION_REPLAY_ACTIVE = false;
+	}
+	catch (e) {
+		console.error('mp-tweaks: error resetting SESSION_REPLAY_ACTIVE flag:', e);
+	}
+}
+
+
+function sessionReplayInit(token, opts = {}, user) {
+	console.log('mp-tweaks: session replay init called with token', token);
+	let attempts = 0;
+	let intervalId;
+	let timeoutId;
+	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
+	
+	const addTracking = opts.addTracking || false;
+	const maxAttempts = 10; // Reduced from 15
+	const pollInterval = 1000; // Reduced from 2500ms to 1000ms
+	const maxWaitTime = 30000; // 30 seconds maximum
+
+	function cleanup() {
+		if (intervalId) {
+			clearInterval(intervalId);
+			intervalId = null;
+		}
+		if (timeoutId) {
+			clearTimeout(timeoutId);
+			timeoutId = null;
+		}
+	}
+
+	// Set maximum timeout regardless of attempts
+	timeoutId = setTimeout(() => {
+		cleanup();
+		console.log('mp-tweaks: session replay init timeout after 30 seconds');
+	}, maxWaitTime);
+
+	function tryInit() {
+
+		
+		if (window.mixpanel && !window.SESSION_REPLAY_ACTIVE) {
+
+			console.log('mp-tweaks: turning on session replay');
+			window.SESSION_REPLAY_ACTIVE = true;
+			cleanup();
+
+			mixpanel.init(token, {
+
+				// autocapture
+				autocapture: {
+					pageview: "full-url",
+					click: true,
+					input: true,
+					scroll: true,
+					submit: true,
+					capture_text_content: true,
+					rage_click: true,
+				},
+
+				//session replay
+				// record_sessions_percent: 100,
+				record_inline_images: true,
+				record_collect_fonts: true,
+				record_mask_text_selector: 'nothing',
+				record_block_selector: "nothing",
+				record_block_class: "nothing",
+				record_canvas: true,
+				record_heatmap_data: true,
+
+				//normal mixpanel
+				ignore_dnt: true,
+				batch_flush_interval_ms: 0,
+				api_host: proxy,
+				
+				loaded: function (mp) {
+					console.log('mp-tweaks: session replay + autocapture loaded');
+					// mp.track('start of user');
+					mp.start_session_recording();
+					// if (addTracking) {
+					// 	setTimeout(() => {
+					// 		mp.track('page view');
+					// 	}, 100);
+					// 	window.addEventListener('click', () => { mp.track('page click'); });
+					// }
+				},
+				debug: true,
+				api_transport: 'XHR',
+				persistence: "localStorage",
+
+
+
+			});
+		} else {
+			attempts++;
+			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}/${maxAttempts}`);
+			if (attempts >= maxAttempts) {
+				cleanup();
+				console.log('mp-tweaks: session replay not found after maximum attempts');
+			}
+		}
+	}
+
+	// Store interval ID globally for cleanup
+	intervalId = setInterval(tryInit, pollInterval);
+
+	// Clean up on page unload
+	if (typeof window !== 'undefined') {
+		window.addEventListener('beforeunload', cleanup);
+		window.addEventListener('pagehide', cleanup);
+	}
+
+}
 
 async function injectToolTip(tooltip) {
 	function waitForElement(selector, context = document, interval = 500, timeout = 30000) {
@@ -881,12 +1043,16 @@ async function injectToolTip(tooltip) {
 
 		// Protect against other code changing the title
 		// Store the desired title
+		
 		window.__mpTweaksCustomTitle = customTitle;
 
 		// Watch for title changes and reset if needed
 		const titleObserver = new MutationObserver(() => {
+			
 			if (document.title !== window.__mpTweaksCustomTitle) {
+				
 				console.log('mp-tweaks: resetting tab title to:', window.__mpTweaksCustomTitle);
+				
 				document.title = window.__mpTweaksCustomTitle;
 			}
 		});
@@ -904,11 +1070,13 @@ async function injectToolTip(tooltip) {
 		// Also use Object.defineProperty for extra protection
 		try {
 			Object.defineProperty(document, 'title', {
-				get: function() {
+				get: function () {
+					
 					return window.__mpTweaksCustomTitle || document.querySelector('title')?.textContent || '';
 				},
-				set: function(newTitle) {
+				set: function (newTitle) {
 					// Only allow setting if it matches our custom title
+					
 					if (newTitle === window.__mpTweaksCustomTitle || !window.__mpTweaksCustomTitle) {
 						const titleEl = document.querySelector('title');
 						if (titleEl) {
@@ -1028,6 +1196,7 @@ async function runScript(funcOrPath, args = [], opts, target) {
 }
 
 function catchFetchWrapper(data, url) {
+	
 	return new Promise((resolve, reject) => {
 		if (!window.MIXPANEL_CATCH_FETCH_ACTIVE) {
 			console.log('mp-tweaks: catch fetch wrapper');
@@ -1035,20 +1204,20 @@ function catchFetchWrapper(data, url) {
 			var s = document.createElement('script');
 			s.src = url;
 			s.onload = function () {
-				// @ts-ignore
+				
 				this.remove();
 			};
 			(document.head || document.documentElement).appendChild(s);
 
 			window.addEventListener("caught-request", function (event) {
 				// Send data to service worker
-				// @ts-ignore
+				
 				resolve({ data: event.detail, target: data.target });
 			});
 
 			window.addEventListener("caught-response", function (event) {
 				// Send data to service worker
-				// @ts-ignore
+				
 				resolve({ data: event.detail, target: data.target });
 			});
 		}
@@ -1083,102 +1252,7 @@ function openNewTab(url, inBackground = false) {
 	});
 }
 
-function sessionReplayInit(token, opts = {}, user) {
-	let attempts = 0;
-	let intervalId;
-	let timeoutId;
-	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	const addTracking = opts.addTracking || false;
-	const maxAttempts = 10; // Reduced from 15
-	const pollInterval = 1000; // Reduced from 2500ms to 1000ms
-	const maxWaitTime = 30000; // 30 seconds maximum
 
-	function cleanup() {
-		if (intervalId) {
-			clearInterval(intervalId);
-			intervalId = null;
-		}
-		if (timeoutId) {
-			clearTimeout(timeoutId);
-			timeoutId = null;
-		}
-	}
-
-	// Set maximum timeout regardless of attempts
-	timeoutId = setTimeout(() => {
-		cleanup();
-		console.log('mp-tweaks: session replay init timeout after 30 seconds');
-	}, maxWaitTime);
-
-	function tryInit() {
-		// @ts-ignore
-		if (window.mixpanel && !window.SESSION_REPLAY_ACTIVE) {
-			console.log('mp-tweaks: turning on session replay');
-			window.SESSION_REPLAY_ACTIVE = true;
-			cleanup();
-
-			mixpanel.init(token, {
-
-				// autocapture
-				autocapture: {
-					pageview: "full-url",
-					click: true,
-					input: true,
-					scroll: true,
-					submit: true,
-					capture_text_content: true
-				},
-
-				//session replay
-				record_sessions_percent: 100,
-				record_inline_images: true,
-				record_collect_fonts: true,
-				record_mask_text_selector: 'nothing',
-				record_block_selector: "nothing",
-				record_block_class: "nothing",
-				record_canvas: true,
-				record_heatmap_data: true,
-
-				//normal mixpanel
-				ignore_dnt: true,
-				batch_flush_interval_ms: 0,
-				api_host: proxy,
-				loaded: function (mp) {
-					console.log('mp-tweaks: session replay + autocapture loaded');
-					// if (addTracking) {
-					// 	setTimeout(() => {
-					// 		mp.track('page view');
-					// 	}, 100);
-					// 	window.addEventListener('click', () => { mp.track('page click'); });
-					// }
-				},
-				debug: true,
-				api_transport: 'XHR',
-				persistence: "localStorage",
-
-
-
-			});
-		} else {
-			attempts++;
-			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}/${maxAttempts}`);
-			if (attempts >= maxAttempts) {
-				cleanup();
-				console.log('mp-tweaks: session replay not found after maximum attempts');
-			}
-		}
-	}
-
-	// Store interval ID globally for cleanup
-	intervalId = setInterval(tryInit, pollInterval);
-
-	// Clean up on page unload
-	if (typeof window !== 'undefined') {
-		window.addEventListener('beforeunload', cleanup);
-		window.addEventListener('pagehide', cleanup);
-	}
-
-}
 
 function removeFlags() {
 	const url = new URL(document.location.href); // Use .href to get the string
@@ -1218,6 +1292,7 @@ HELPERS
 function stableStringify(obj) {
 	return JSON.stringify(obj, replacer, 2); // pretty-print with spacing
 }
+
 
 function replacer(key, value) {
 	if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -1315,6 +1390,7 @@ function areEqual(obj1, obj2) {
 function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
+
 
 function noop(...vary) { }
 
@@ -1440,7 +1516,7 @@ async function getUser() {
 		}
 	}
 	catch (err) {
-		// @ts-ignore
+		
 		if (err?.message?.includes('JSON')) {
 			console.log('mp-tweaks: user is not logged in');
 		}
@@ -1454,6 +1530,7 @@ async function getUser() {
 
 function analytics(user_id, superProps = {}, token = "99526f575a41223fcbadd9efdd280c7e", url = "https://api.mixpanel.com/track?verbose=1") {
 	const blacklist = ['oauthToken'];
+	
 	return function (eventName = "ping", props = {}, callback = (res) => { }) {
 		try {
 			for (const key in props) {
