@@ -292,11 +292,11 @@ chrome.runtime.onSuspend.addListener(function () {
 // Clean up on extension shutdown
 
 if (typeof process !== 'undefined' && process.on) {
-	
+
 	process.on('exit', cleanupAllTimers);
-	
+
 	process.on('SIGINT', cleanupAllTimers);
-	
+
 	process.on('SIGTERM', cleanupAllTimers);
 }
 
@@ -764,7 +764,7 @@ async function updateIconToBeActive(enabled) {
 
 
 async function makeProject() {
-	
+
 	const excludedOrgs = [
 		1, // Mixpanel
 		328203, // Mixpanel Demo
@@ -875,7 +875,7 @@ function sessionReplayInit(token, opts = {}, user) {
 	let intervalId;
 	let timeoutId;
 	const proxy = opts.proxy || 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	
+
 	const addTracking = opts.addTracking || false;
 	const maxAttempts = 10; // Reduced from 15
 	const pollInterval = 1000; // Reduced from 2500ms to 1000ms
@@ -900,7 +900,7 @@ function sessionReplayInit(token, opts = {}, user) {
 
 	function tryInit() {
 
-		
+
 		if (window.mixpanel && !window.SESSION_REPLAY_ACTIVE) {
 
 			console.log('mp-tweaks: turning on session replay');
@@ -934,17 +934,12 @@ function sessionReplayInit(token, opts = {}, user) {
 				ignore_dnt: true,
 				batch_flush_interval_ms: 0,
 				api_host: proxy,
-				
+
 				loaded: function (mp) {
 					console.log('mp-tweaks: session replay + autocapture loaded');
-					// mp.track('start of user');
 					mp.start_session_recording();
-					// if (addTracking) {
-					// 	setTimeout(() => {
-					// 		mp.track('page view');
-					// 	}, 100);
-					// 	window.addEventListener('click', () => { mp.track('page click'); });
-					// }
+					window.TWEAKS_MP = mp;
+
 				},
 				debug: true,
 				api_transport: 'XHR',
@@ -952,7 +947,7 @@ function sessionReplayInit(token, opts = {}, user) {
 
 
 
-			});
+			}, "mp_tweaks");
 		} else {
 			attempts++;
 			console.log(`mp-tweaks: waiting for sessionReplay ... attempt: ${attempts}/${maxAttempts}`);
@@ -1043,16 +1038,16 @@ async function injectToolTip(tooltip) {
 
 		// Protect against other code changing the title
 		// Store the desired title
-		
+
 		window.__mpTweaksCustomTitle = customTitle;
 
 		// Watch for title changes and reset if needed
 		const titleObserver = new MutationObserver(() => {
-			
+
 			if (document.title !== window.__mpTweaksCustomTitle) {
-				
+
 				console.log('mp-tweaks: resetting tab title to:', window.__mpTweaksCustomTitle);
-				
+
 				document.title = window.__mpTweaksCustomTitle;
 			}
 		});
@@ -1071,12 +1066,12 @@ async function injectToolTip(tooltip) {
 		try {
 			Object.defineProperty(document, 'title', {
 				get: function () {
-					
+
 					return window.__mpTweaksCustomTitle || document.querySelector('title')?.textContent || '';
 				},
 				set: function (newTitle) {
 					// Only allow setting if it matches our custom title
-					
+
 					if (newTitle === window.__mpTweaksCustomTitle || !window.__mpTweaksCustomTitle) {
 						const titleEl = document.querySelector('title');
 						if (titleEl) {
@@ -1196,7 +1191,7 @@ async function runScript(funcOrPath, args = [], opts, target) {
 }
 
 function catchFetchWrapper(data, url) {
-	
+
 	return new Promise((resolve, reject) => {
 		if (!window.MIXPANEL_CATCH_FETCH_ACTIVE) {
 			console.log('mp-tweaks: catch fetch wrapper');
@@ -1204,20 +1199,20 @@ function catchFetchWrapper(data, url) {
 			var s = document.createElement('script');
 			s.src = url;
 			s.onload = function () {
-				
+
 				this.remove();
 			};
 			(document.head || document.documentElement).appendChild(s);
 
 			window.addEventListener("caught-request", function (event) {
 				// Send data to service worker
-				
+
 				resolve({ data: event.detail, target: data.target });
 			});
 
 			window.addEventListener("caught-response", function (event) {
 				// Send data to service worker
-				
+
 				resolve({ data: event.detail, target: data.target });
 			});
 		}
@@ -1516,7 +1511,7 @@ async function getUser() {
 		}
 	}
 	catch (err) {
-		
+
 		if (err?.message?.includes('JSON')) {
 			console.log('mp-tweaks: user is not logged in');
 		}
@@ -1530,7 +1525,7 @@ async function getUser() {
 
 function analytics(user_id, superProps = {}, token = "99526f575a41223fcbadd9efdd280c7e", url = "https://api.mixpanel.com/track?verbose=1") {
 	const blacklist = ['oauthToken'];
-	
+
 	return function (eventName = "ping", props = {}, callback = (res) => { }) {
 		try {
 			for (const key in props) {
