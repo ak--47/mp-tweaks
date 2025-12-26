@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.48`;
+const APP_VERSION = `2.49`;
 // const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 // const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 // const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
@@ -126,8 +126,8 @@ function sleep(ms) {
 }
 
 // Cache helper functions
-function isCacheFresh(cacheItem, maxAgeMs = 5 * 60 * 1000) {
-	// Default: 5 minutes cache
+function isCacheFresh(cacheItem, maxAgeMs = 24 * 60 * 60 * 1000) {
+	// Default: 24 hours cache
 	if (!cacheItem || !cacheItem.timestamp) return false;
 	const now = Date.now();
 	return (now - cacheItem.timestamp) < maxAgeMs;
@@ -494,6 +494,9 @@ function cacheDOM() {
 
 	//logo
 	this.DOM.logoLink = document.querySelector('#logoLink');
+
+	//refresh cache
+	this.DOM.refreshCache = document.querySelector('#refreshCache');
 
 	//headers
 	this.DOM.checkPairs = document.querySelectorAll('.checkPair');
@@ -952,6 +955,21 @@ function bindListeners() {
 			setTimeout(() => {
 				this.DOM.logoLink.classList.remove('tweaking');
 			}, 600);
+		});
+
+		//refresh cache
+		this.DOM.refreshCache.addEventListener('click', async (e) => {
+			e.preventDefault();
+			track('refresh cache');
+			// Invalidate cache timestamps, then reload the page
+			const storage = await getStorage();
+			if (storage.externalDataCache) {
+				for (const key in storage.externalDataCache) {
+					storage.externalDataCache[key].timestamp = 0;
+				}
+				await setStorage(storage);
+			}
+			location.reload();
 		});
 	}
 	catch (e) {
