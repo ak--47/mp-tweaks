@@ -26,11 +26,12 @@
 			"resources": [
 				"src/tweaks/100x.js",
 				"src/tweaks/catchFetch.js",
-				"src/lib/mixpanel-full.js"				
+				"src/lib/mixpanel-full.js",
+				"src/assets/quotes.csv"
 			],
 			"matches": [
 				"*://*.mxpnl.com/*",
-				"*://mixpanel.com/*"				
+				"*://mixpanel.com/*"
 			]
 		},
 		{

@@ -130,6 +130,90 @@
 				</div>
 			</div>
 
+			<!-- AI MAGIC -->
+			<div id="aiMagic"
+				class="section">
+				<h2 data-section="aiMagic">
+					<div class="section-header">
+						<span>&#10024; AI Magic</span>
+					</div>
+					<span class="collapse-toggle">↓</span>
+				</h2>
+				<div class="section-content">
+					<p class="small">AI-powered enrichment for <span class="highlight">the current active Mixpanel project</span>
+						<br/><span class="ai-permission-note">Requires <b>Admin</b> or higher project access (Staff permission will not work)</span>
+						<br/><a href="https://powertools.mixpanel.org/" target="_blank" class="powered-by">powered by powertools</a>
+					</p>
+
+					<!-- Project Info Banner -->
+					<div id="aiMagicStatus" class="ai-status">
+						<span id="aiProjectLabel" class="statusText">Project: <b>not detected</b></span>
+						<span id="aiRegionLabel" class="statusText"> | Region: <b>US</b></span>
+					</div>
+
+					<!-- Macro Selector Dropdown -->
+					<div class="ai-macro-selector">
+						<label>Macro:</label>
+						<select id="aiMacroSelect">
+							<option value="dataset">AI Dataset Generator</option>
+							<option value="schema">AI Schema Enrichment</option>
+							<option value="tags">AI Event Tagging</option>
+							<option value="rename-reports">AI Rename Reports</option>
+							<option value="rename-entities">AI Rename Entities</option>
+						</select>
+					</div>
+
+					<!-- Macro Options Panel (dynamic based on selection) -->
+					<div id="aiMacroPanel" class="ai-macro-panel">
+						<!-- Dynamic content per macro -->
+					</div>
+
+					<!-- Product Context -->
+					<div class="ai-context-section">
+						<label>Product Context (optional):</label>
+						<textarea id="aiProductContext" placeholder="Describe your product to help AI generate better results. E.g., 'E-commerce marketplace for vintage furniture'"></textarea>
+					</div>
+
+					<!-- Auth Override Section (collapsed by default) -->
+					<details class="ai-auth-override">
+						<summary>Auth Override (optional)</summary>
+						<div class="auth-options">
+							<label><input type="radio" name="authType" value="oauth" checked> Use OAuth Token (default)</label>
+							<label><input type="radio" name="authType" value="bearer"> Custom Bearer Token</label>
+							<label><input type="radio" name="authType" value="service"> Service Account</label>
+							<input type="text" id="aiCustomBearer" class="hidden" placeholder="Bearer token">
+							<div id="aiServiceAcct" class="hidden">
+								<input type="text" id="aiServiceUser" placeholder="Service Account Username">
+								<input type="password" id="aiServiceSecret" placeholder="Service Secret">
+							</div>
+						</div>
+					</details>
+
+					<!-- Go Button -->
+					<div class="button-input-group">
+						<button class="button ai-go-button" id="aiGoButton" disabled>Go! (not inside a mixpanel project)</button>
+					</div>
+
+					<!-- Loading State with Quotes -->
+					<div id="aiLoader" class="hidden">
+						<lottie-player src="./assets/limited-seg.lottie" background="transparent" speed="1"
+							style="width: 120px; height: 120px; margin: 0 auto;" loop autoplay></lottie-player>
+						<div id="aiQuoteContainer" class="ai-quote-container">
+							<p id="aiQuote" class="ai-quote">"Loading..."</p>
+							<p id="aiQuoteAuthor" class="ai-quote-author">- AI</p>
+						</div>
+						<p id="aiTimer" class="ai-timer">0:00</p>
+						<p class="ai-timer-note">AI jobs can take several minutes.<br/>If you close the extension, it will continue to run in the background.</p>
+					</div>
+
+					<!-- Results -->
+					<div id="aiResults" class="hidden">
+						<p class="ai-refresh-note">Refresh your Mixpanel page to see updates</p>
+						<textarea id="aiResultsText" readonly></textarea>
+					</div>
+				</div>
+			</div>
+
 			<!-- CREATE PROJECTS -->
 			<div id="createProject"
 				class="section">

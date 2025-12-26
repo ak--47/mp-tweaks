@@ -96,6 +96,7 @@ const STORAGE_MODEL = {
 		modHeader: { expanded: true },
 		demoLinks: { expanded: true },
 		dataTools: { expanded: true },
+		aiMagic: { expanded: true },
 		createProject: { expanded: true },
 		sessionReplay: { expanded: true },
 		dataEditor: { expanded: true },
@@ -103,7 +104,7 @@ const STORAGE_MODEL = {
 		persistentOptions: { expanded: true },
 		oddsEnds: { expanded: true }
 	},
-	sectionOrder: ['modHeader', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds']
+	sectionOrder: ['modHeader', 'aiMagic', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds']
 };
 
 /*
@@ -129,6 +130,7 @@ async function init() {
 			modHeader: { expanded: true },
 			demoLinks: { expanded: true },
 			dataTools: { expanded: true },
+			aiMagic: { expanded: true },
 			createProject: { expanded: true },
 			sessionReplay: { expanded: true },
 			dataEditor: { expanded: true },
@@ -136,7 +138,7 @@ async function init() {
 			persistentOptions: { expanded: true },
 			oddsEnds: { expanded: true }
 		},
-		sectionOrder: raw.sectionOrder || ['modHeader', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds'],
+		sectionOrder: raw.sectionOrder || ['modHeader', 'aiMagic', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds'],
 		externalDataCache: raw.externalDataCache || {
 			featureFlags: { data: [], timestamp: 0 },
 			demoLinks: { data: [], timestamp: 0 },
@@ -580,6 +582,11 @@ async function handleRequest(request) {
 			result = `Cleaned up ${activeIntervals.size + activeTimeouts.size} timers`;
 			break;
 
+		case 'ai-macro':
+			console.log('mp-tweaks: running AI macro', request.data.macroType);
+			result = await runAIMacro(request.data.macroType, request.data.params);
+			break;
+
 		default:
 			console.error("mp-tweaks: unknown action", request);
 			track('unknown-action', { request: request });
@@ -600,6 +607,57 @@ async function messageExtension(action, data) {
 		console.error('mp-tweaks: error sending message:', e, "action:", action, "data", data);
 		return e;
 	}
+}
+
+async function runAIMacro(macroType, params) {
+	const endpoints = {
+		'dataset': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-dataset',
+		'schema': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-schema',
+		'tags': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-tags',
+		'rename-reports': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-rename-reports',
+		'rename-entities': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-rename-entities'
+	};
+
+	const url = endpoints[macroType];
+	if (!url) throw new Error(`Unknown macro type: ${macroType}`);
+
+	// Build auth header
+	let authHeader;
+	if (params.authType === 'bearer' && params.customBearer) {
+		authHeader = `Bearer ${params.customBearer}`;
+	} else if (params.authType === 'service' && params.serviceUser && params.serviceSecret) {
+		authHeader = `Basic ${btoa(`${params.serviceUser}:${params.serviceSecret}`)}`;
+	} else {
+		const token = STORAGE?.whoami?.oauthToken;
+		console.log('mp-tweaks: using OAuth token:', token ? `${token.substring(0, 20)}...` : 'NO TOKEN FOUND');
+		if (!token) {
+			throw new Error('No OAuth token found. Please ensure you are logged into Mixpanel.');
+		}
+		authHeader = `Bearer ${token}`;
+	}
+
+	// Clean params (remove auth fields from API payload)
+	const { authType, customBearer, serviceUser, serviceSecret, ...apiParams } = params;
+
+	console.log('mp-tweaks: AI macro request', { url, apiParams });
+
+	const response = await fetch(url, {
+		method: 'POST',
+		headers: {
+			'Authorization': authHeader,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(apiParams)
+	});
+
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(`API Error: ${response.status} - ${errorText}`);
+	}
+
+	const result = await response.json();
+	console.log('mp-tweaks: AI macro response', result);
+	return result;
 }
 
 /*

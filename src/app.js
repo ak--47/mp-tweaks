@@ -184,6 +184,293 @@ async function getStaleCache(name) {
 	}
 }
 
+// AI Magic helper functions
+let quotesCache = null;
+
+async function loadQuotes() {
+	if (quotesCache) return quotesCache;
+	try {
+		const response = await fetch(chrome.runtime.getURL('/src/assets/quotes.csv'));
+		const text = await response.text();
+		quotesCache = Papa.parse(text, { header: true }).data.filter(q => q.quote && q.author);
+		return quotesCache;
+	} catch (e) {
+		console.error('mp-tweaks: error loading quotes:', e);
+		return [{ quote: "Data is the new oil.", author: "Clive Humby" }];
+	}
+}
+
+function getRandomQuote(quotes) {
+	const quote = quotes[Math.floor(Math.random() * quotes.length)];
+	return { quote: quote.quote, author: quote.author };
+}
+
+function extractProjectId(url) {
+	if (!url || !url.includes('mixpanel.com')) return null;
+	const match = url.match(/\/project\/(\d+)/);
+	return match ? match[1] : null;
+}
+
+function extractRegion(url) {
+	if (!url) return 'US';
+	if (url.includes('eu.mixpanel.com')) return 'EU';
+	if (url.includes('in.mixpanel.com')) return 'IN';
+	return 'US';
+}
+
+async function checkAIMagicEnabled() {
+	try {
+		const tab = await getCurrentTab();
+		const projectId = extractProjectId(tab?.url);
+		const region = extractRegion(tab?.url);
+
+		if (APP.DOM.aiRegionLabel) APP.DOM.aiRegionLabel.textContent = region;
+
+		if (projectId) {
+			if (APP.DOM.aiProjectLabel) APP.DOM.aiProjectLabel.textContent = projectId;
+			if (APP.DOM.aiGoButton) {
+				APP.DOM.aiGoButton.disabled = false;
+				APP.DOM.aiGoButton.textContent = 'Go!';
+			}
+			return { projectId, region };
+		} else {
+			if (APP.DOM.aiProjectLabel) APP.DOM.aiProjectLabel.textContent = 'not detected';
+			if (APP.DOM.aiGoButton) {
+				APP.DOM.aiGoButton.disabled = true;
+				APP.DOM.aiGoButton.textContent = 'Go! (not inside a mixpanel project)';
+			}
+			return null;
+		}
+	} catch (e) {
+		console.error('mp-tweaks: error checking AI Magic enabled:', e);
+		return null;
+	}
+}
+
+async function runAIMacro(macroType, params) {
+	// Show loader
+	APP.DOM.aiLoader.classList.remove('hidden');
+	APP.DOM.aiResults.classList.add('hidden');
+	APP.DOM.aiGoButton.disabled = true;
+
+	// Start timer
+	const startTime = Date.now();
+	if (APP.DOM.aiTimer) APP.DOM.aiTimer.textContent = '0:00';
+
+	const timerInterval = setInterval(() => {
+		const elapsed = Math.floor((Date.now() - startTime) / 1000);
+		const minutes = Math.floor(elapsed / 60);
+		const seconds = elapsed % 60;
+		if (APP.DOM.aiTimer) {
+			APP.DOM.aiTimer.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+		}
+	}, 1000);
+
+	// Start quote rotation with fade effect
+	const quotes = await loadQuotes();
+	const { quote: initialQuote, author: initialAuthor } = getRandomQuote(quotes);
+	APP.DOM.aiQuote.textContent = `"${initialQuote}"`;
+	APP.DOM.aiQuoteAuthor.textContent = `- ${initialAuthor}`;
+
+	const quoteInterval = setInterval(() => {
+		// Fade out
+		APP.DOM.aiQuote.classList.add('fade-out');
+		APP.DOM.aiQuoteAuthor.classList.add('fade-out');
+
+		// After fade out, change text and fade in
+		setTimeout(() => {
+			const { quote, author } = getRandomQuote(quotes);
+			APP.DOM.aiQuote.textContent = `"${quote}"`;
+			APP.DOM.aiQuoteAuthor.textContent = `- ${author}`;
+			APP.DOM.aiQuote.classList.remove('fade-out');
+			APP.DOM.aiQuoteAuthor.classList.remove('fade-out');
+		}, 500);
+	}, 4000);
+
+	try {
+		const result = await messageWorker('ai-macro', { macroType, params });
+
+		if (result?.error) {
+			APP.DOM.aiResultsText.value = `Error: ${result.error}`;
+		} else {
+			APP.DOM.aiResultsText.value = JSON.stringify(result, null, 2);
+		}
+		APP.DOM.aiResults.classList.remove('hidden');
+
+	} catch (e) {
+		APP.DOM.aiResultsText.value = `Error: ${e.message}`;
+		APP.DOM.aiResults.classList.remove('hidden');
+	} finally {
+		clearInterval(quoteInterval);
+		clearInterval(timerInterval);
+		APP.DOM.aiLoader.classList.add('hidden');
+		APP.DOM.aiGoButton.disabled = false;
+	}
+}
+
+const AI_MACRO_CONFIGS = {
+	'dataset': {
+		title: 'AI Dataset Generator',
+		description: 'Generate realistic DEMO DATA for your project.',
+		fields: [
+			{ id: 'prompt', type: 'textarea', label: 'Dataset Description', placeholder: 'Describe the app you want demo data for...' },
+			{ id: 'num_users', type: 'number', label: 'Number of Users', default: 500, min: 10, max: 10000 },
+			{ id: 'num_events', type: 'number', label: 'Number of Events', default: 25000, min: 100, max: 500000 },
+			{ id: 'num_days', type: 'number', label: 'Days of Data', default: 30, min: 1, max: 365 }
+		]
+	},
+	'schema': {
+		title: 'AI Schema Enrichment',
+		description: 'Generate display names, descriptions, and example values for events and properties in Lexicon.',
+		fields: [
+			{ id: 'target', type: 'select', label: 'Target Entities', options: ['all', 'events', 'properties', 'users'] },
+			{ id: 'casing', type: 'select', label: 'Casing Style', options: ['title', 'lower'] },
+			{ id: 'skip_existing', type: 'checkbox', label: 'Skip entities with existing values', default: true },
+			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' }
+		]
+	},
+	'tags': {
+		title: 'AI Event Tagging',
+		description: 'Generate tags that group similar events by feature, function, or intended use.',
+		fields: [
+			{ id: 'casing', type: 'select', label: 'Tag Casing', options: ['title', 'lower'] },
+			{ id: 'existing_tags_mode', type: 'select', label: 'Existing Tags', options: ['replace', 'merge', 'skip'] }
+		]
+	},
+	'rename-reports': {
+		title: 'AI Rename Reports',
+		description: 'Generate meaningful names and descriptions for reports.',
+		fields: [
+			{ id: 'dashboard_ids', type: 'text', label: 'Dashboard IDs (optional)', placeholder: 'Comma-separated IDs, or leave empty for all' },
+			{ id: 'untitled_only', type: 'checkbox', label: 'Only rename "Untitled" reports' },
+			{ id: 'overwrite', type: 'checkbox', label: 'Overwrite existing names', default: true },
+			{ id: 'include_descriptions', type: 'checkbox', label: 'Generate descriptions', default: true },
+			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' }
+		]
+	},
+	'rename-entities': {
+		title: 'AI Rename Entities',
+		description: 'Generate names and descriptions for cohorts, behaviors, metrics, and more.',
+		fields: [
+			{ id: 'entity_types', type: 'multiselect', label: 'Entity Types',
+				options: ['cohorts', 'behaviors', 'metrics', 'custom_events', 'custom_props', 'dashboards'] },
+			{ id: 'overwrite', type: 'checkbox', label: 'Overwrite existing names', default: true },
+			{ id: 'include_descriptions', type: 'checkbox', label: 'Generate descriptions', default: true },
+			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' }
+		]
+	}
+};
+
+function renderAIMacroPanel(macroType) {
+	const panel = APP.DOM.aiMacroPanel;
+	if (!panel) return;
+
+	const config = AI_MACRO_CONFIGS[macroType];
+	if (!config) return;
+
+	panel.innerHTML = `
+		<h4>${config.title}</h4>
+		<p class="small">${config.description}</p>
+		<div class="ai-fields">
+			${config.fields.map(f => renderAIField(f)).join('')}
+		</div>
+	`;
+
+	// Hide product context for dataset macro (it has its own prompt field)
+	const contextSection = APP.DOM.aiProductContext?.closest('.ai-context-section');
+	if (contextSection) {
+		contextSection.classList.toggle('hidden', macroType === 'dataset');
+	}
+}
+
+function renderAIField(field) {
+	switch (field.type) {
+		case 'select':
+			return `<div class="field-row">
+				<label>${field.label}</label>
+				<select id="ai-${field.id}">
+					${field.options.map(o => `<option value="${o}">${o}</option>`).join('')}
+				</select>
+			</div>`;
+		case 'checkbox':
+			return `<div class="field-row">
+				<label><input type="checkbox" id="ai-${field.id}" ${field.default ? 'checked' : ''}> ${field.label}</label>
+			</div>`;
+		case 'text':
+			return `<div class="field-row">
+				<label>${field.label}</label>
+				<input type="text" id="ai-${field.id}" placeholder="${field.placeholder || ''}">
+			</div>`;
+		case 'textarea':
+			return `<div class="field-row field-row-textarea">
+				<label>${field.label}</label>
+				<textarea id="ai-${field.id}" placeholder="${field.placeholder || ''}" rows="3"></textarea>
+			</div>`;
+		case 'number':
+			return `<div class="field-row">
+				<label>${field.label}</label>
+				<input type="number" id="ai-${field.id}" value="${field.default || ''}" min="${field.min || ''}" max="${field.max || ''}">
+			</div>`;
+		case 'multiselect':
+			return `<div class="field-row">
+				<label>${field.label}</label>
+				<div class="multiselect" id="ai-${field.id}">
+					${field.options.map(o => `<label><input type="checkbox" value="${o}" checked> ${o}</label>`).join('')}
+				</div>
+			</div>`;
+		default:
+			return '';
+	}
+}
+
+function gatherAIParams(macroType, projectId, region) {
+	const params = {
+		project_id: projectId,
+		region: region
+	};
+
+	const config = AI_MACRO_CONFIGS[macroType];
+	if (!config) return params;
+
+	// Gather field values
+	for (const field of config.fields) {
+		const el = document.getElementById(`ai-${field.id}`);
+		if (!el) continue;
+
+		if (field.type === 'checkbox') {
+			params[field.id] = /** @type {HTMLInputElement} */ (el).checked;
+		} else if (field.type === 'select') {
+			params[field.id] = /** @type {HTMLSelectElement} */ (el).value;
+		} else if (field.type === 'text' || field.type === 'textarea') {
+			const val = /** @type {HTMLInputElement|HTMLTextAreaElement} */ (el).value.trim();
+			if (val) params[field.id] = val;
+		} else if (field.type === 'number') {
+			const val = /** @type {HTMLInputElement} */ (el).value;
+			if (val) params[field.id] = parseInt(val, 10);
+		} else if (field.type === 'multiselect') {
+			const checked = Array.from(el.querySelectorAll('input:checked')).map(cb => /** @type {HTMLInputElement} */ (cb).value);
+			if (checked.length > 0) params[field.id] = checked.join(',');
+		}
+	}
+
+	// Product context
+	const productContext = APP.DOM.aiProductContext?.value?.trim();
+	if (productContext) params.product_context = productContext;
+
+	// Auth override
+	const authType = document.querySelector('input[name="authType"]:checked')?.value || 'oauth';
+	params.authType = authType;
+
+	if (authType === 'bearer') {
+		params.customBearer = APP.DOM.aiCustomBearer?.value?.trim() || '';
+	} else if (authType === 'service') {
+		params.serviceUser = APP.DOM.aiServiceUser?.value?.trim() || '';
+		params.serviceSecret = APP.DOM.aiServiceSecret?.value?.trim() || '';
+	}
+
+	return params;
+}
+
 async function fetchCSV(url, name, allowCache = true) {
 	// First, check if we have fresh cached data
 	if (allowCache) {
@@ -509,6 +796,24 @@ function cacheDOM() {
 	this.DOM.modHeaderStatus = document.querySelector('#modHeaderLabel b');
 	this.DOM.addHeader = document.querySelector('#addHeader');
 	this.DOM.userHeaders = document.querySelector('#userHeaders');
+
+	//ai magic
+	this.DOM.aiMagic = document.querySelector('#aiMagic');
+	this.DOM.aiProjectLabel = document.querySelector('#aiProjectLabel b');
+	this.DOM.aiRegionLabel = document.querySelector('#aiRegionLabel b');
+	this.DOM.aiMacroSelect = document.querySelector('#aiMacroSelect');
+	this.DOM.aiMacroPanel = document.querySelector('#aiMacroPanel');
+	this.DOM.aiProductContext = document.querySelector('#aiProductContext');
+	this.DOM.aiGoButton = document.querySelector('#aiGoButton');
+	this.DOM.aiLoader = document.querySelector('#aiLoader');
+	this.DOM.aiQuote = document.querySelector('#aiQuote');
+	this.DOM.aiQuoteAuthor = document.querySelector('#aiQuoteAuthor');
+	this.DOM.aiTimer = document.querySelector('#aiTimer');
+	this.DOM.aiResults = document.querySelector('#aiResults');
+	this.DOM.aiResultsText = document.querySelector('#aiResultsText');
+	this.DOM.aiCustomBearer = document.querySelector('#aiCustomBearer');
+	this.DOM.aiServiceUser = document.querySelector('#aiServiceUser');
+	this.DOM.aiServiceSecret = document.querySelector('#aiServiceSecret');
 
 }
 
@@ -971,6 +1276,43 @@ function bindListeners() {
 			}
 			location.reload();
 		});
+
+		// AI MAGIC
+		if (this.DOM.aiMacroSelect) {
+			this.DOM.aiMacroSelect.addEventListener('change', () => {
+				renderAIMacroPanel(this.DOM.aiMacroSelect.value);
+			});
+		}
+
+		if (this.DOM.aiGoButton) {
+			this.DOM.aiGoButton.addEventListener('click', async () => {
+				const context = await checkAIMagicEnabled();
+				if (!context) return;
+
+				const macroType = this.DOM.aiMacroSelect.value;
+				const params = gatherAIParams(macroType, context.projectId, context.region);
+				track('ai-magic', { macroType, ...params });
+				await runAIMacro(macroType, params);
+			});
+		}
+
+		// Auth type switching
+		document.querySelectorAll('input[name="authType"]').forEach(radio => {
+			radio.addEventListener('change', (e) => {
+				const value = e.target.value;
+				if (this.DOM.aiCustomBearer) {
+					this.DOM.aiCustomBearer.classList.toggle('hidden', value !== 'bearer');
+				}
+				const serviceAcct = document.getElementById('aiServiceAcct');
+				if (serviceAcct) {
+					serviceAcct.classList.toggle('hidden', value !== 'service');
+				}
+			});
+		});
+
+		// Initialize AI Magic
+		checkAIMagicEnabled();
+		renderAIMacroPanel('dataset');
 	}
 	catch (e) {
 		track('error: bindListeners', { error: e });
