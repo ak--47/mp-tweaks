@@ -66,7 +66,7 @@ function cleanupAllTimers() {
 	activeTimeouts.clear();
 }
 
-const APP_VERSION = `2.49`;
+const APP_VERSION = `2.50`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
