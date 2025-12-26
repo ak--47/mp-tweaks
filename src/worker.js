@@ -81,7 +81,7 @@ const STORAGE_MODEL = {
 	version: APP_VERSION,
 	persistScripts: [],
 	serviceAcct: { user: '', pass: '' },
-	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
+	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [] },
 	sessionReplay: { token: "", enabled: false, tabId: 0 },
 	verbose: true,
 	modHeaders: { headers: [], enabled: false, savedHeaders: [] },
@@ -125,7 +125,7 @@ async function init() {
 		sessionReplay: raw.sessionReplay || { token: "", enabled: false, tabId: 0 },
 		modHeaders: raw.modHeaders || { headers: [], enabled: false, savedHeaders: [] },
 		responseOverrides: raw.responseOverrides || {},
-		whoami: raw.whoami || { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
+		whoami: raw.whoami || { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [] },
 		sectionStates: raw.sectionStates || {
 			modHeader: { expanded: true },
 			demoLinks: { expanded: true },
@@ -1534,7 +1534,7 @@ async function clearStorageData() {
 }
 
 async function getUser() {
-	const user = { name: '', email: '', oauthToken: '', orgId: '', orgName: '' };
+	const user = { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [] };
 	const url = `https://mixpanel.com/oauth/access_token`;
 	const request = await fetch(url, { credentials: 'include' });
 	const response = await request.text();
@@ -1549,21 +1549,22 @@ async function getUser() {
 				if (user_name) user.name = user_name;
 				if (user_email) user.email = user_email;
 				if (!user_email.includes('@mixpanel.com')) throw new Error(`${user_email} not a mixpanel employee`);
-				const foundOrg = Object.values(data.results.organizations).filter(o => o.name.includes(user_name))?.pop();
-				if (foundOrg) {
-					user.orgId = foundOrg.id?.toString();
-					user.orgName = foundOrg.name;
-				}
-				if (!foundOrg) {
-					// the name is not in the orgs, so we need to find the org in which the user is the owner
-					const ignoreProjects = [1673847, 1866253, 328203];
-					const possibleOrg = Object.values(data.results.organizations)
-						.filter(o => o.role === 'owner')
-						.filter(o => !ignoreProjects.includes(o.id))?.pop();
-					if (possibleOrg) {
-						user.orgId = possibleOrg?.id?.toString();
-						user.orgName = possibleOrg.name;
-					}
+
+				// Collect ALL orgs where the user is an owner
+				const ignoreOrgs = [1673847, 1866253, 328203]; // shared demo orgs
+				const ownedOrgs = Object.values(data.results.organizations)
+					.filter(o => o.role === 'owner')
+					.filter(o => !ignoreOrgs.includes(o.id))
+					.map(o => ({ id: o.id?.toString(), name: o.name }));
+
+				user.ownedOrgs = ownedOrgs;
+
+				// Set default active org: prefer one matching user's name, otherwise first owned org
+				if (ownedOrgs.length > 0) {
+					const personalOrg = ownedOrgs.find(o => o.name.toLowerCase().includes(user_name.toLowerCase()));
+					const defaultOrg = personalOrg || ownedOrgs[0];
+					user.orgId = defaultOrg.id;
+					user.orgName = defaultOrg.name;
 				}
 			}
 		}

@@ -761,8 +761,8 @@ function cacheDOM() {
 	this.DOM.resetUser = document.querySelector('#resetUser');
 	this.DOM.projectDetails = document.querySelector('#projectDetails textarea');
 	this.DOM.makeProjectSpinner = document.querySelector('#makeProjectSpinner');
-	this.DOM.orgLabel = document.querySelector('#orgLabel');
-	this.DOM.orgPlaceholder = document.querySelector('#orgLabel b');
+	this.DOM.orgSelector = document.querySelector('#orgSelector');
+	this.DOM.orgDropdown = document.querySelector('#orgDropdown');
 
 
 
@@ -824,14 +824,25 @@ function loadInterface() {
 		//load toggle states
 		APP.setCheckbox(persistScripts);
 
-		//org label
-		if (whoami.orgId) {
-			this.DOM.orgLabel.classList.remove('hidden');
-			this.DOM.orgPlaceholder.textContent = `${whoami.orgName} (${whoami.orgId})`;
+		//org dropdown
+		const ownedOrgs = whoami.ownedOrgs || [];
+		if (ownedOrgs.length > 0) {
+			this.DOM.orgSelector.classList.remove('hidden');
 			this.DOM.makeProject.disabled = false;
+
+			// Populate dropdown
+			this.DOM.orgDropdown.innerHTML = ownedOrgs.map(org =>
+				`<option value="${org.id}" ${org.id === whoami.orgId ? 'selected' : ''}>${org.name} (${org.id})</option>`
+			).join('');
+		}
+		else if (whoami.orgId) {
+			// Fallback for old data structure
+			this.DOM.orgSelector.classList.remove('hidden');
+			this.DOM.makeProject.disabled = false;
+			this.DOM.orgDropdown.innerHTML = `<option value="${whoami.orgId}">${whoami.orgName} (${whoami.orgId})</option>`;
 		}
 		else {
-			this.DOM.orgLabel.classList.add('hidden');
+			this.DOM.orgSelector.classList.add('hidden');
 			this.DOM.makeProject.disabled = true;
 		}
 
@@ -948,10 +959,19 @@ function bindListeners() {
 
 			try {
 				const newUser = await messageWorker('reset-user');
-				const { orgId, orgName, name, id } = newUser;
-				this.DOM.orgLabel.classList.remove('hidden');
-				this.DOM.orgPlaceholder.textContent = `${orgName} (${orgId})`;
-				track('reset-user', { name, id });
+				const { ownedOrgs = [], orgId, orgName, name } = newUser;
+
+				// Refresh the dropdown with new orgs
+				if (ownedOrgs.length > 0) {
+					this.DOM.orgSelector.classList.remove('hidden');
+					this.DOM.orgDropdown.innerHTML = ownedOrgs.map(org =>
+						`<option value="${org.id}" ${org.id === orgId ? 'selected' : ''}>${org.name} (${org.id})</option>`
+					).join('');
+				} else if (orgId) {
+					this.DOM.orgSelector.classList.remove('hidden');
+					this.DOM.orgDropdown.innerHTML = `<option value="${orgId}">${orgName} (${orgId})</option>`;
+				}
+				track('reset-user', { name, orgId, numOrgs: ownedOrgs.length });
 
 			}
 			catch (e) {
@@ -963,6 +983,21 @@ function bindListeners() {
 			this.DOM.projectDetails.classList.add('hidden');
 			this.DOM.makeProject.disabled = false;
 
+		});
+
+		// ORG DROPDOWN CHANGE - persist selection
+		this.DOM.orgDropdown.addEventListener('change', async () => {
+			const selectedOrgId = this.DOM.orgDropdown.value;
+			const selectedOption = this.DOM.orgDropdown.options[this.DOM.orgDropdown.selectedIndex];
+			const selectedOrgName = selectedOption.text.replace(/ \(\d+\)$/, ''); // Extract name without ID
+
+			// Update storage
+			const storage = await getStorage();
+			storage.whoami.orgId = selectedOrgId;
+			storage.whoami.orgName = selectedOrgName;
+			await setStorage(storage);
+
+			track('org-changed', { orgId: selectedOrgId, orgName: selectedOrgName });
 		});
 
 		// QUERY API BUILDER

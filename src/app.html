@@ -224,9 +224,16 @@
 					<span class="collapse-toggle">↓</span>
 				</h2>
 				<div class="section-content">
-					<p class="small">make a <b>new project</b> in <span class="highlight">your personal org</span><br /><br/><span
-						id="orgLabel"
-						class="statusText hidden">connected org: <b>FOO</b></span></p>
+					<p class="small">make a <b>new project</b> in <span class="highlight">your personal org</span></p>
+
+				<!-- Org Selector -->
+				<div id="orgSelector" class="org-selector hidden">
+					<label>Active Org:</label>
+					<select id="orgDropdown">
+						<!-- Options populated dynamically -->
+					</select>
+				</div>
+
 				<div class="button-input-group">
 					<button class="button" id="makeProject">Make Project</button>
 					<button class="button" id="resetUser">Reauth</button>
