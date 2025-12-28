@@ -104,7 +104,15 @@ const STORAGE_MODEL = {
 		persistentOptions: { expanded: true },
 		oddsEnds: { expanded: true }
 	},
-	sectionOrder: ['modHeader', 'aiMagic', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds']
+	sectionOrder: ['modHeader', 'aiMagic', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds'],
+	aiJob: {
+		status: 'idle',      // 'idle' | 'running' | 'completed' | 'error' | 'timeout'
+		macroType: null,     // 'dataset', 'schema', etc.
+		params: null,        // The params sent to the API
+		startTime: null,     // Date.now() when job started
+		result: null,        // API response
+		error: null          // Error message if failed
+	}
 };
 
 /*
@@ -143,6 +151,14 @@ async function init() {
 			featureFlags: { data: [], timestamp: 0 },
 			demoLinks: { data: [], timestamp: 0 },
 			tools: { data: [], timestamp: 0 }
+		},
+		aiJob: raw.aiJob || {
+			status: 'idle',
+			macroType: null,
+			params: null,
+			startTime: null,
+			result: null,
+			error: null
 		}
 	};
 
@@ -609,6 +625,8 @@ async function messageExtension(action, data) {
 	}
 }
 
+const AI_JOB_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+
 async function runAIMacro(macroType, params) {
 	const endpoints = {
 		'dataset': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-dataset',
@@ -621,6 +639,9 @@ async function runAIMacro(macroType, params) {
 	const url = endpoints[macroType];
 	if (!url) throw new Error(`Unknown macro type: ${macroType}`);
 
+	// Query storage directly to avoid race condition where STORAGE isn't yet populated
+	const storage = await getStorage();
+
 	// Build auth header
 	let authHeader;
 	if (params.authType === 'bearer' && params.customBearer) {
@@ -628,7 +649,7 @@ async function runAIMacro(macroType, params) {
 	} else if (params.authType === 'service' && params.serviceUser && params.serviceSecret) {
 		authHeader = `Basic ${btoa(`${params.serviceUser}:${params.serviceSecret}`)}`;
 	} else {
-		const token = STORAGE?.whoami?.oauthToken;
+		const token = storage?.whoami?.oauthToken;
 		console.log('mp-tweaks: using OAuth token:', token ? `${token.substring(0, 20)}...` : 'NO TOKEN FOUND');
 		if (!token) {
 			throw new Error('No OAuth token found. Please ensure you are logged into Mixpanel.');
@@ -639,25 +660,85 @@ async function runAIMacro(macroType, params) {
 	// Clean params (remove auth fields from API payload)
 	const { authType, customBearer, serviceUser, serviceSecret, ...apiParams } = params;
 
+	// Add user_id from storage and client_id
+	if (storage?.whoami?.email) {
+		apiParams.user_id = storage.whoami.email;
+	}
+	apiParams.client_id = 'mptweaks';
+
 	console.log('mp-tweaks: AI macro request', { url, apiParams });
 
-	const response = await fetch(url, {
-		method: 'POST',
-		headers: {
-			'Authorization': authHeader,
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify(apiParams)
-	});
+	// Save job state as "running" before making API call
+	const jobState = {
+		status: 'running',
+		macroType,
+		params: apiParams,
+		startTime: Date.now(),
+		result: null,
+		error: null
+	};
+	storage.aiJob = jobState;
+	await setStorage(storage);
+	// Also update STORAGE cache
+	STORAGE = storage;
 
-	if (!response.ok) {
-		const errorText = await response.text();
-		throw new Error(`API Error: ${response.status} - ${errorText}`);
+	try {
+		// Create timeout promise
+		const timeoutPromise = new Promise((_, reject) => {
+			setTimeout(() => reject(new Error('AI job timed out after 15 minutes')), AI_JOB_TIMEOUT);
+		});
+
+		// Race between fetch and timeout
+		const response = await Promise.race([
+			fetch(url, {
+				method: 'POST',
+				headers: {
+					'Authorization': authHeader,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(apiParams)
+			}),
+			timeoutPromise
+		]);
+
+		if (!response.ok) {
+			const errorText = await response.text();
+			throw new Error(`API Error: ${response.status} - ${errorText}`);
+		}
+
+		const result = await response.json();
+		console.log('mp-tweaks: AI macro response', result);
+
+		// Update job state to "completed"
+		const updatedStorage = await getStorage();
+		updatedStorage.aiJob = {
+			...updatedStorage.aiJob,
+			status: 'completed',
+			result: result
+		};
+		await setStorage(updatedStorage);
+		STORAGE = updatedStorage;
+
+		return result;
+	} catch (error) {
+		console.error('mp-tweaks: AI macro error', error);
+
+		// Determine if it's a timeout or other error
+		const isTimeout = error.message.includes('timed out');
+		const errorStatus = isTimeout ? 'timeout' : 'error';
+
+		// Update job state to "error" or "timeout"
+		const updatedStorage = await getStorage();
+		updatedStorage.aiJob = {
+			...updatedStorage.aiJob,
+			status: errorStatus,
+			error: error.message
+		};
+		await setStorage(updatedStorage);
+		STORAGE = updatedStorage;
+
+		throw error;
 	}
-
-	const result = await response.json();
-	console.log('mp-tweaks: AI macro response', result);
-	return result;
 }
 
 /*

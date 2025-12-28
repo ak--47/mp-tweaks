@@ -196,6 +196,7 @@
 
 					<!-- Loading State with Quotes -->
 					<div id="aiLoader" class="hidden">
+						<p id="aiJobContext" class="ai-job-context">Running: <b id="aiJobType">-</b> on project <b id="aiJobProject">-</b></p>
 						<lottie-player src="./assets/limited-seg.lottie" background="transparent" speed="1"
 							style="width: 120px; height: 120px; margin: 0 auto;" loop autoplay></lottie-player>
 						<div id="aiQuoteContainer" class="ai-quote-container">
@@ -233,6 +234,8 @@
 						<!-- Options populated dynamically -->
 					</select>
 				</div>
+
+				<p id="authUserDisplay" class="hidden small">Authed as: <b id="authUserEmail">unknown</b></p>
 
 				<div class="button-input-group">
 					<button class="button" id="makeProject">Make Project</button>

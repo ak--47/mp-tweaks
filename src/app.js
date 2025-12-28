@@ -56,6 +56,7 @@ const APP = {
 			this.loadInterface();
 			this.listenForWorker();
 			this.analytics();
+			restoreAIJobState(); // Restore AI job state on popup open
 
 			// fetch data from google sheets, then hide loader and build UI buttons
 			const sources = this.dataSources;
@@ -247,17 +248,64 @@ async function checkAIMagicEnabled() {
 	}
 }
 
-async function runAIMacro(macroType, params) {
-	// Show loader
-	APP.DOM.aiLoader.classList.remove('hidden');
-	APP.DOM.aiResults.classList.add('hidden');
-	APP.DOM.aiGoButton.disabled = true;
+// AI Job State Management
+const AI_JOB_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+let aiJobTimerInterval = null;
+let aiJobQuoteInterval = null;
+let aiJobPollInterval = null;
 
-	// Start timer
-	const startTime = Date.now();
-	if (APP.DOM.aiTimer) APP.DOM.aiTimer.textContent = '0:00';
+async function restoreAIJobState() {
+	const storage = await getStorage();
+	const job = storage.aiJob;
 
-	const timerInterval = setInterval(() => {
+	if (!job || job.status === 'idle') return;
+
+	// Check for timeout (job started > 15 min ago but still "running")
+	if (job.status === 'running' && Date.now() - job.startTime > AI_JOB_TIMEOUT) {
+		// Mark as timed out
+		storage.aiJob.status = 'timeout';
+		storage.aiJob.error = 'AI job timed out after 15 minutes';
+		await setStorage(storage);
+		showAIError('AI job timed out after 15 minutes');
+		return;
+	}
+
+	if (job.status === 'running') {
+		// Restore loading state with accurate timer + context
+		showAILoader(job.startTime, job.macroType, job.params?.project_id);
+		// Start polling for completion
+		pollForAIJobCompletion();
+	} else if (job.status === 'completed') {
+		showAIResults(job.result);
+	} else if (job.status === 'error' || job.status === 'timeout') {
+		showAIError(job.error);
+	}
+}
+
+function showAILoader(startTime, macroType, projectId) {
+	// Show loader UI
+	APP.DOM.aiLoader?.classList.remove('hidden');
+	APP.DOM.aiResults?.classList.add('hidden');
+	if (APP.DOM.aiGoButton) APP.DOM.aiGoButton.disabled = true;
+
+	// Set job context
+	if (APP.DOM.aiJobType) {
+		const macroNames = {
+			'dataset': 'AI Dataset',
+			'schema': 'AI Schema',
+			'tags': 'AI Tags',
+			'rename-reports': 'AI Rename Reports',
+			'rename-entities': 'AI Rename Entities'
+		};
+		APP.DOM.aiJobType.textContent = macroNames[macroType] || macroType;
+	}
+	if (APP.DOM.aiJobProject) {
+		APP.DOM.aiJobProject.textContent = projectId || 'unknown';
+	}
+
+	// Start timer from stored startTime
+	clearInterval(aiJobTimerInterval);
+	aiJobTimerInterval = setInterval(() => {
 		const elapsed = Math.floor((Date.now() - startTime) / 1000);
 		const minutes = Math.floor(elapsed / 60);
 		const seconds = elapsed % 60;
@@ -266,45 +314,119 @@ async function runAIMacro(macroType, params) {
 		}
 	}, 1000);
 
-	// Start quote rotation with fade effect
+	// Start quote rotation
+	startQuoteRotation();
+}
+
+async function startQuoteRotation() {
 	const quotes = await loadQuotes();
 	const { quote: initialQuote, author: initialAuthor } = getRandomQuote(quotes);
-	APP.DOM.aiQuote.textContent = `"${initialQuote}"`;
-	APP.DOM.aiQuoteAuthor.textContent = `- ${initialAuthor}`;
+	if (APP.DOM.aiQuote) APP.DOM.aiQuote.textContent = `"${initialQuote}"`;
+	if (APP.DOM.aiQuoteAuthor) APP.DOM.aiQuoteAuthor.textContent = `- ${initialAuthor}`;
 
-	const quoteInterval = setInterval(() => {
+	clearInterval(aiJobQuoteInterval);
+	aiJobQuoteInterval = setInterval(() => {
 		// Fade out
-		APP.DOM.aiQuote.classList.add('fade-out');
-		APP.DOM.aiQuoteAuthor.classList.add('fade-out');
+		APP.DOM.aiQuote?.classList.add('fade-out');
+		APP.DOM.aiQuoteAuthor?.classList.add('fade-out');
 
 		// After fade out, change text and fade in
 		setTimeout(() => {
 			const { quote, author } = getRandomQuote(quotes);
-			APP.DOM.aiQuote.textContent = `"${quote}"`;
-			APP.DOM.aiQuoteAuthor.textContent = `- ${author}`;
-			APP.DOM.aiQuote.classList.remove('fade-out');
-			APP.DOM.aiQuoteAuthor.classList.remove('fade-out');
+			if (APP.DOM.aiQuote) APP.DOM.aiQuote.textContent = `"${quote}"`;
+			if (APP.DOM.aiQuoteAuthor) APP.DOM.aiQuoteAuthor.textContent = `- ${author}`;
+			APP.DOM.aiQuote?.classList.remove('fade-out');
+			APP.DOM.aiQuoteAuthor?.classList.remove('fade-out');
 		}, 500);
 	}, 4000);
+}
+
+function stopAILoaderUI() {
+	clearInterval(aiJobTimerInterval);
+	clearInterval(aiJobQuoteInterval);
+	clearInterval(aiJobPollInterval);
+	aiJobTimerInterval = null;
+	aiJobQuoteInterval = null;
+	aiJobPollInterval = null;
+
+	APP.DOM.aiLoader?.classList.add('hidden');
+	if (APP.DOM.aiGoButton) APP.DOM.aiGoButton.disabled = false;
+}
+
+function showAIResults(result) {
+	stopAILoaderUI();
+	if (APP.DOM.aiResultsText) {
+		APP.DOM.aiResultsText.value = JSON.stringify(result, null, 2);
+	}
+	APP.DOM.aiResults?.classList.remove('hidden');
+}
+
+function showAIError(errorMessage) {
+	stopAILoaderUI();
+	if (APP.DOM.aiResultsText) {
+		APP.DOM.aiResultsText.value = `Error: ${errorMessage}`;
+	}
+	APP.DOM.aiResults?.classList.remove('hidden');
+}
+
+function pollForAIJobCompletion() {
+	clearInterval(aiJobPollInterval);
+	aiJobPollInterval = setInterval(async () => {
+		const storage = await getStorage();
+		const job = storage.aiJob;
+
+		// Check for timeout
+		if (job.status === 'running' && Date.now() - job.startTime > AI_JOB_TIMEOUT) {
+			clearInterval(aiJobPollInterval);
+			showAIError('AI job timed out after 15 minutes');
+			return;
+		}
+
+		if (job.status !== 'running') {
+			clearInterval(aiJobPollInterval);
+			if (job.status === 'completed') {
+				showAIResults(job.result);
+			} else if (job.status === 'error' || job.status === 'timeout') {
+				showAIError(job.error);
+			}
+		}
+	}, 1000); // Poll every second
+}
+
+async function clearAIJobState() {
+	const storage = await getStorage();
+	storage.aiJob = {
+		status: 'idle',
+		macroType: null,
+		params: null,
+		startTime: null,
+		result: null,
+		error: null
+	};
+	await setStorage(storage);
+}
+
+async function runAIMacro(macroType, params) {
+	// Clear previous job state (auto-clears results from previous job)
+	await clearAIJobState();
+
+	// Show loader with job context
+	const startTime = Date.now();
+	showAILoader(startTime, macroType, params.project_id);
 
 	try {
+		// Send request to worker (worker will persist state and handle timeout)
 		const result = await messageWorker('ai-macro', { macroType, params });
 
 		if (result?.error) {
-			APP.DOM.aiResultsText.value = `Error: ${result.error}`;
+			showAIError(result.error);
 		} else {
-			APP.DOM.aiResultsText.value = JSON.stringify(result, null, 2);
+			showAIResults(result);
 		}
-		APP.DOM.aiResults.classList.remove('hidden');
 
 	} catch (e) {
-		APP.DOM.aiResultsText.value = `Error: ${e.message}`;
-		APP.DOM.aiResults.classList.remove('hidden');
-	} finally {
-		clearInterval(quoteInterval);
-		clearInterval(timerInterval);
-		APP.DOM.aiLoader.classList.add('hidden');
-		APP.DOM.aiGoButton.disabled = false;
+		// Error handling - worker should have updated storage, but handle UI here too
+		showAIError(e.message);
 	}
 }
 
@@ -763,6 +885,8 @@ function cacheDOM() {
 	this.DOM.makeProjectSpinner = document.querySelector('#makeProjectSpinner');
 	this.DOM.orgSelector = document.querySelector('#orgSelector');
 	this.DOM.orgDropdown = document.querySelector('#orgDropdown');
+	this.DOM.authUserDisplay = document.querySelector('#authUserDisplay');
+	this.DOM.authUserEmail = document.querySelector('#authUserEmail');
 
 
 
@@ -814,6 +938,9 @@ function cacheDOM() {
 	this.DOM.aiCustomBearer = document.querySelector('#aiCustomBearer');
 	this.DOM.aiServiceUser = document.querySelector('#aiServiceUser');
 	this.DOM.aiServiceSecret = document.querySelector('#aiServiceSecret');
+	this.DOM.aiJobContext = document.querySelector('#aiJobContext');
+	this.DOM.aiJobType = document.querySelector('#aiJobType');
+	this.DOM.aiJobProject = document.querySelector('#aiJobProject');
 
 }
 
@@ -844,6 +971,16 @@ function loadInterface() {
 		else {
 			this.DOM.orgSelector.classList.add('hidden');
 			this.DOM.makeProject.disabled = true;
+		}
+
+		// Display authenticated user in Project Creator section
+		if (whoami.email) {
+			this.DOM.authUserDisplay?.classList.remove('hidden');
+			if (this.DOM.authUserEmail) {
+				this.DOM.authUserEmail.textContent = whoami.email;
+			}
+		} else {
+			this.DOM.authUserDisplay?.classList.add('hidden');
 		}
 
 

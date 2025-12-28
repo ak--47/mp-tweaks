@@ -974,6 +974,17 @@ input:focus,
   margin: 0;
 }
 
+.ai-job-context {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 12px 0;
+  text-align: center;
+}
+
+.ai-job-context b {
+  color: var(--text-primary);
+}
+
 .ai-refresh-note {
   background: var(--bg-tertiary);
   padding: 8px 12px;
