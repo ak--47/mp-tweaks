@@ -66,7 +66,7 @@ function cleanupAllTimers() {
 	activeTimeouts.clear();
 }
 
-const APP_VERSION = `2.50`;
+const APP_VERSION = `2.51`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -81,7 +81,7 @@ const STORAGE_MODEL = {
 	version: APP_VERSION,
 	persistScripts: [],
 	serviceAcct: { user: '', pass: '' },
-	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
+	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [] },
 	sessionReplay: { token: "", enabled: false, tabId: 0 },
 	verbose: true,
 	modHeaders: { headers: [], enabled: false, savedHeaders: [] },
@@ -96,6 +96,7 @@ const STORAGE_MODEL = {
 		modHeader: { expanded: true },
 		demoLinks: { expanded: true },
 		dataTools: { expanded: true },
+		aiMagic: { expanded: true },
 		createProject: { expanded: true },
 		sessionReplay: { expanded: true },
 		dataEditor: { expanded: true },
@@ -103,7 +104,15 @@ const STORAGE_MODEL = {
 		persistentOptions: { expanded: true },
 		oddsEnds: { expanded: true }
 	},
-	sectionOrder: ['modHeader', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds']
+	sectionOrder: ['modHeader', 'aiMagic', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds'],
+	aiJob: {
+		status: 'idle',      // 'idle' | 'running' | 'completed' | 'error' | 'timeout'
+		macroType: null,     // 'dataset', 'schema', etc.
+		params: null,        // The params sent to the API
+		startTime: null,     // Date.now() when job started
+		result: null,        // API response
+		error: null          // Error message if failed
+	}
 };
 
 /*
@@ -124,11 +133,12 @@ async function init() {
 		sessionReplay: raw.sessionReplay || { token: "", enabled: false, tabId: 0 },
 		modHeaders: raw.modHeaders || { headers: [], enabled: false, savedHeaders: [] },
 		responseOverrides: raw.responseOverrides || {},
-		whoami: raw.whoami || { name: '', email: '', oauthToken: '', orgId: '', orgName: '' },
+		whoami: raw.whoami || { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [] },
 		sectionStates: raw.sectionStates || {
 			modHeader: { expanded: true },
 			demoLinks: { expanded: true },
 			dataTools: { expanded: true },
+			aiMagic: { expanded: true },
 			createProject: { expanded: true },
 			sessionReplay: { expanded: true },
 			dataEditor: { expanded: true },
@@ -136,11 +146,19 @@ async function init() {
 			persistentOptions: { expanded: true },
 			oddsEnds: { expanded: true }
 		},
-		sectionOrder: raw.sectionOrder || ['modHeader', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds'],
+		sectionOrder: raw.sectionOrder || ['modHeader', 'aiMagic', 'demoLinks', 'dataTools', 'createProject', 'sessionReplay', 'dataEditor', 'perTab', 'persistentOptions', 'oddsEnds'],
 		externalDataCache: raw.externalDataCache || {
 			featureFlags: { data: [], timestamp: 0 },
 			demoLinks: { data: [], timestamp: 0 },
 			tools: { data: [], timestamp: 0 }
+		},
+		aiJob: raw.aiJob || {
+			status: 'idle',
+			macroType: null,
+			params: null,
+			startTime: null,
+			result: null,
+			error: null
 		}
 	};
 
@@ -580,6 +598,11 @@ async function handleRequest(request) {
 			result = `Cleaned up ${activeIntervals.size + activeTimeouts.size} timers`;
 			break;
 
+		case 'ai-macro':
+			console.log('mp-tweaks: running AI macro', request.data.macroType);
+			result = await runAIMacro(request.data.macroType, request.data.params);
+			break;
+
 		default:
 			console.error("mp-tweaks: unknown action", request);
 			track('unknown-action', { request: request });
@@ -599,6 +622,122 @@ async function messageExtension(action, data) {
 	catch (e) {
 		console.error('mp-tweaks: error sending message:', e, "action:", action, "data", data);
 		return e;
+	}
+}
+
+const AI_JOB_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+async function runAIMacro(macroType, params) {
+	const endpoints = {
+		'dataset': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-dataset',
+		'schema': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-schema',
+		'tags': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-tags',
+		'rename-reports': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-rename-reports',
+		'rename-entities': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-rename-entities'
+	};
+
+	const url = endpoints[macroType];
+	if (!url) throw new Error(`Unknown macro type: ${macroType}`);
+
+	// Query storage directly to avoid race condition where STORAGE isn't yet populated
+	const storage = await getStorage();
+
+	// Build auth header
+	let authHeader;
+	if (params.authType === 'bearer' && params.customBearer) {
+		authHeader = `Bearer ${params.customBearer}`;
+	} else if (params.authType === 'service' && params.serviceUser && params.serviceSecret) {
+		authHeader = `Basic ${btoa(`${params.serviceUser}:${params.serviceSecret}`)}`;
+	} else {
+		const token = storage?.whoami?.oauthToken;
+		console.log('mp-tweaks: using OAuth token:', token ? `${token.substring(0, 20)}...` : 'NO TOKEN FOUND');
+		if (!token) {
+			throw new Error('No OAuth token found. Please ensure you are logged into Mixpanel.');
+		}
+		authHeader = `Bearer ${token}`;
+	}
+
+	// Clean params (remove auth fields from API payload)
+	const { authType, customBearer, serviceUser, serviceSecret, ...apiParams } = params;
+
+	// Add user_id from storage and client_id
+	if (storage?.whoami?.email) {
+		apiParams.user_id = storage.whoami.email;
+	}
+	apiParams.client_id = 'mptweaks';
+
+	console.log('mp-tweaks: AI macro request', { url, apiParams });
+
+	// Save job state as "running" before making API call
+	const jobState = {
+		status: 'running',
+		macroType,
+		params: apiParams,
+		startTime: Date.now(),
+		result: null,
+		error: null
+	};
+	storage.aiJob = jobState;
+	await setStorage(storage);
+	// Also update STORAGE cache
+	STORAGE = storage;
+
+	try {
+		// Create timeout promise
+		const timeoutPromise = new Promise((_, reject) => {
+			setTimeout(() => reject(new Error('Job timed out')), AI_JOB_TIMEOUT);
+		});
+
+		// Race between fetch and timeout
+		const response = await Promise.race([
+			fetch(url, {
+				method: 'POST',
+				headers: {
+					'Authorization': authHeader,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(apiParams)
+			}),
+			timeoutPromise
+		]);
+
+		if (!response.ok) {
+			const errorText = await response.text();
+			throw new Error(`API Error: ${response.status} - ${errorText}`);
+		}
+
+		const result = await response.json();
+		console.log('mp-tweaks: AI macro response', result);
+
+		// Update job state to "completed"
+		const updatedStorage = await getStorage();
+		updatedStorage.aiJob = {
+			...updatedStorage.aiJob,
+			status: 'completed',
+			result: result
+		};
+		await setStorage(updatedStorage);
+		STORAGE = updatedStorage;
+
+		return result;
+	} catch (error) {
+		console.error('mp-tweaks: AI macro error', error);
+
+		// Determine if it's a timeout or other error
+		const isTimeout = error.message.includes('timed out');
+		const errorStatus = isTimeout ? 'timeout' : 'error';
+
+		// Update job state to "error" or "timeout"
+		const updatedStorage = await getStorage();
+		updatedStorage.aiJob = {
+			...updatedStorage.aiJob,
+			status: errorStatus,
+			error: error.message
+		};
+		await setStorage(updatedStorage);
+		STORAGE = updatedStorage;
+
+		throw error;
 	}
 }
 
@@ -1476,7 +1615,7 @@ async function clearStorageData() {
 }
 
 async function getUser() {
-	const user = { name: '', email: '', oauthToken: '', orgId: '', orgName: '' };
+	const user = { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [] };
 	const url = `https://mixpanel.com/oauth/access_token`;
 	const request = await fetch(url, { credentials: 'include' });
 	const response = await request.text();
@@ -1491,21 +1630,22 @@ async function getUser() {
 				if (user_name) user.name = user_name;
 				if (user_email) user.email = user_email;
 				if (!user_email.includes('@mixpanel.com')) throw new Error(`${user_email} not a mixpanel employee`);
-				const foundOrg = Object.values(data.results.organizations).filter(o => o.name.includes(user_name))?.pop();
-				if (foundOrg) {
-					user.orgId = foundOrg.id?.toString();
-					user.orgName = foundOrg.name;
-				}
-				if (!foundOrg) {
-					// the name is not in the orgs, so we need to find the org in which the user is the owner
-					const ignoreProjects = [1673847, 1866253, 328203];
-					const possibleOrg = Object.values(data.results.organizations)
-						.filter(o => o.role === 'owner')
-						.filter(o => !ignoreProjects.includes(o.id))?.pop();
-					if (possibleOrg) {
-						user.orgId = possibleOrg?.id?.toString();
-						user.orgName = possibleOrg.name;
-					}
+
+				// Collect ALL orgs where the user is an owner
+				const ignoreOrgs = [1673847, 1866253, 328203]; // shared demo orgs
+				const ownedOrgs = Object.values(data.results.organizations)
+					.filter(o => o.role === 'owner')
+					.filter(o => !ignoreOrgs.includes(o.id))
+					.map(o => ({ id: o.id?.toString(), name: o.name }));
+
+				user.ownedOrgs = ownedOrgs;
+
+				// Set default active org: prefer one matching user's name, otherwise first owned org
+				if (ownedOrgs.length > 0) {
+					const personalOrg = ownedOrgs.find(o => o.name.toLowerCase().includes(user_name.toLowerCase()));
+					const defaultOrg = personalOrg || ownedOrgs[0];
+					user.orgId = defaultOrg.id;
+					user.orgName = defaultOrg.name;
 				}
 			}
 		}
