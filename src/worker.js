@@ -66,7 +66,7 @@ function cleanupAllTimers() {
 	activeTimeouts.clear();
 }
 
-const APP_VERSION = `2.50`;
+const APP_VERSION = `2.51`;
 const SCRIPTS = {
 	"hundredX": { path: './src/tweaks/hundredX.js', code: "" },
 	"catchFetch": { path: "./src/tweaks/catchFetch.js", code: "" },
@@ -625,7 +625,7 @@ async function messageExtension(action, data) {
 	}
 }
 
-const AI_JOB_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+const AI_JOB_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 async function runAIMacro(macroType, params) {
 	const endpoints = {
@@ -685,7 +685,7 @@ async function runAIMacro(macroType, params) {
 	try {
 		// Create timeout promise
 		const timeoutPromise = new Promise((_, reject) => {
-			setTimeout(() => reject(new Error('AI job timed out after 15 minutes')), AI_JOB_TIMEOUT);
+			setTimeout(() => reject(new Error('Job timed out')), AI_JOB_TIMEOUT);
 		});
 
 		// Race between fetch and timeout

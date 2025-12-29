@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.50`;
+const APP_VERSION = `2.51`;
 // const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 // const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 // const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
@@ -249,7 +249,7 @@ async function checkAIMagicEnabled() {
 }
 
 // AI Job State Management
-const AI_JOB_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+const AI_JOB_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 let aiJobTimerInterval = null;
 let aiJobQuoteInterval = null;
 let aiJobPollInterval = null;
@@ -264,9 +264,9 @@ async function restoreAIJobState() {
 	if (job.status === 'running' && Date.now() - job.startTime > AI_JOB_TIMEOUT) {
 		// Mark as timed out
 		storage.aiJob.status = 'timeout';
-		storage.aiJob.error = 'AI job timed out after 15 minutes';
+		storage.aiJob.error = 'Job timed out';
 		await setStorage(storage);
-		showAIError('AI job timed out after 15 minutes');
+		showAIError('Job timed out');
 		return;
 	}
 
@@ -378,7 +378,7 @@ function pollForAIJobCompletion() {
 		// Check for timeout
 		if (job.status === 'running' && Date.now() - job.startTime > AI_JOB_TIMEOUT) {
 			clearInterval(aiJobPollInterval);
-			showAIError('AI job timed out after 15 minutes');
+			showAIError('Job timed out');
 			return;
 		}
 
@@ -439,7 +439,8 @@ const AI_MACRO_CONFIGS = {
 			{ id: 'num_users', type: 'number', label: 'Number of Users', default: 500, min: 10, max: 10000 },
 			{ id: 'num_events', type: 'number', label: 'Number of Events', default: 25000, min: 100, max: 500000 },
 			{ id: 'num_days', type: 'number', label: 'Days of Data', default: 30, min: 1, max: 365 }
-		]
+		],
+		promo: 'Want more control? Try <a href="https://dm3.mixpanel.org/" target="_blank">dm3</a> or <a href="https://dm4-lmozz6xkha-uc.a.run.app/" target="_blank">dm4</a>'
 	},
 	'schema': {
 		title: 'AI Schema Enrichment',
@@ -496,6 +497,7 @@ function renderAIMacroPanel(macroType) {
 		<div class="ai-fields">
 			${config.fields.map(f => renderAIField(f)).join('')}
 		</div>
+		${config.promo ? `<p class="ai-promo">${config.promo}</p>` : ''}
 	`;
 
 	// Hide product context for dataset macro (it has its own prompt field)
@@ -941,6 +943,8 @@ function cacheDOM() {
 	this.DOM.aiJobContext = document.querySelector('#aiJobContext');
 	this.DOM.aiJobType = document.querySelector('#aiJobType');
 	this.DOM.aiJobProject = document.querySelector('#aiJobProject');
+	this.DOM.aiSaveResults = document.querySelector('#aiSaveResults');
+	this.DOM.aiClearResults = document.querySelector('#aiClearResults');
 
 }
 
@@ -1465,6 +1469,40 @@ function bindListeners() {
 				const params = gatherAIParams(macroType, context.projectId, context.region);
 				track('ai-magic', { macroType, ...params });
 				await runAIMacro(macroType, params);
+			});
+		}
+
+		// AI Results actions
+		if (this.DOM.aiClearResults) {
+			this.DOM.aiClearResults.addEventListener('click', async () => {
+				await clearAIJobState();
+				if (this.DOM.aiResultsText) this.DOM.aiResultsText.value = '';
+				this.DOM.aiResults?.classList.add('hidden');
+				track('ai-clear-results');
+			});
+		}
+
+		if (this.DOM.aiSaveResults) {
+			this.DOM.aiSaveResults.addEventListener('click', () => {
+				const content = this.DOM.aiResultsText?.value || '';
+				if (!content) return;
+
+				const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+				const filename = `ai-results-${timestamp}.json`;
+
+				// Use the existing saveJSON helper if available, otherwise create blob
+				try {
+					const blob = new Blob([content], { type: 'application/json' });
+					const url = URL.createObjectURL(blob);
+					const a = document.createElement('a');
+					a.href = url;
+					a.download = filename;
+					a.click();
+					URL.revokeObjectURL(url);
+					track('ai-save-results');
+				} catch (e) {
+					console.error('mp-tweaks: error saving results:', e);
+				}
 			});
 		}
 
