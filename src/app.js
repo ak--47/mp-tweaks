@@ -431,6 +431,26 @@ async function runAIMacro(macroType, params) {
 }
 
 const AI_MACRO_CONFIGS = {
+	'e2e': {
+		title: 'AI End-to-End',
+		description: 'Generate demo data, create dashboards, enrich schema, and tag events in one step.',
+		fields: [
+			{ id: 'prompt', type: 'textarea', label: 'Product Description', placeholder: 'Describe the product (e.g., "B2B SaaS project management tool like Asana")' },
+			{ id: 'num_users', type: 'number', label: 'Number of Users', default: 5000, min: 10, max: 10000 },
+			{ id: 'num_events', type: 'number', label: 'Number of Events', default: 250000, min: 100, max: 500000 },
+			{ id: 'num_days', type: 'number', label: 'Days of Data', default: 60, min: 1, max: 365 },
+			{ id: 'num_dashboards', type: 'number', label: 'Number of Dashboards', default: 4, min: 1, max: 10 }
+		]
+	},
+	'replay': {
+		title: 'AI Replay Generator',
+		description: 'Generate session replay recordings by simulating user behavior on a target website.',
+		fields: [
+			{ id: 'url', type: 'text', label: 'Target URL', placeholder: 'https://example.com/' },
+			{ id: 'users', type: 'number', label: 'Number of Fake Users', default: 15, min: 1, max: 25 },
+			{ id: 'masking', type: 'checkbox', label: 'Enable element masking' }
+		]
+	},
 	'dataset': {
 		title: 'AI Dataset Generator',
 		description: 'Generate realistic DEMO DATA for your project.',
@@ -503,7 +523,7 @@ function renderAIMacroPanel(macroType) {
 	// Hide product context for dataset macro (it has its own prompt field)
 	const contextSection = APP.DOM.aiProductContext?.closest('.ai-context-section');
 	if (contextSection) {
-		contextSection.classList.toggle('hidden', macroType === 'dataset');
+		contextSection.classList.toggle('hidden', macroType === 'dataset' || macroType === 'e2e');
 	}
 }
 

@@ -629,6 +629,8 @@ const AI_JOB_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 async function runAIMacro(macroType, params) {
 	const endpoints = {
+		'e2e': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-e2e',
+		'replay': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/meeple-job',
 		'dataset': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-dataset',
 		'schema': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-schema',
 		'tags': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-tags',
