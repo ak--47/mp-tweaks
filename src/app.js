@@ -249,7 +249,7 @@ async function checkAIMagicEnabled() {
 }
 
 // AI Job State Management
-const AI_JOB_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const AI_JOB_TIMEOUT = 15 * 60 * 1000; // 15 minutes
 let aiJobTimerInterval = null;
 let aiJobQuoteInterval = null;
 let aiJobPollInterval = null;
@@ -472,6 +472,14 @@ const AI_MACRO_CONFIGS = {
 			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' }
 		]
 	},
+	'dashboard': {
+		title: 'AI Dashboard Generator',
+		description: 'Generate dashboards with 5-10 reports each based on your project schema.',
+		fields: [
+			{ id: 'prompt', type: 'textarea', label: 'Dashboard Themes (optional)', placeholder: 'e.g., "User Acquisition and Retention dashboards focused on e-commerce metrics"' },
+			{ id: 'num_dashboards', type: 'number', label: 'Number of Dashboards', default: 3, min: 1, max: 10 }
+		]
+	},
 	'tags': {
 		title: 'AI Event Tagging',
 		description: 'Generate tags that group similar events by feature, function, or intended use.',
@@ -504,6 +512,9 @@ const AI_MACRO_CONFIGS = {
 	}
 };
 
+// Debounce timer for saving field values
+let aiFieldSaveTimer = null;
+
 function renderAIMacroPanel(macroType) {
 	const panel = APP.DOM.aiMacroPanel;
 	if (!panel) return;
@@ -520,11 +531,25 @@ function renderAIMacroPanel(macroType) {
 		${config.promo ? `<p class="ai-promo">${config.promo}</p>` : ''}
 	`;
 
-	// Hide product context for dataset macro (it has its own prompt field)
+	// Hide product context for macros that have their own prompt field
 	const contextSection = APP.DOM.aiProductContext?.closest('.ai-context-section');
 	if (contextSection) {
-		contextSection.classList.toggle('hidden', macroType === 'dataset' || macroType === 'e2e');
+		contextSection.classList.toggle('hidden', macroType === 'dataset' || macroType === 'e2e' || macroType === 'dashboard');
 	}
+
+	// Add event listeners to save field values on change (debounced)
+	const saveOnChange = () => {
+		clearTimeout(aiFieldSaveTimer);
+		aiFieldSaveTimer = setTimeout(() => {
+			saveAIMacroFieldValues(macroType);
+		}, 300);
+	};
+
+	// Listen for input/change events on all fields in the panel
+	panel.querySelectorAll('input, select, textarea').forEach(el => {
+		el.addEventListener('input', saveOnChange);
+		el.addEventListener('change', saveOnChange);
+	});
 }
 
 function renderAIField(field) {
@@ -613,6 +638,82 @@ function gatherAIParams(macroType, projectId, region) {
 	}
 
 	return params;
+}
+
+// Save current macro field values to storage
+async function saveAIMacroFieldValues(macroType) {
+	const config = AI_MACRO_CONFIGS[macroType];
+	if (!config) return;
+
+	const fieldValues = {};
+	for (const field of config.fields) {
+		const el = document.getElementById(`ai-${field.id}`);
+		if (!el) continue;
+
+		if (field.type === 'checkbox') {
+			fieldValues[field.id] = /** @type {HTMLInputElement} */ (el).checked;
+		} else if (field.type === 'multiselect') {
+			fieldValues[field.id] = Array.from(el.querySelectorAll('input:checked')).map(cb => /** @type {HTMLInputElement} */ (cb).value);
+		} else {
+			fieldValues[field.id] = /** @type {HTMLInputElement} */ (el).value;
+		}
+	}
+
+	// Also save product context if visible
+	const productContext = APP.DOM.aiProductContext?.value || '';
+
+	const storage = await getStorage();
+	if (!storage.aiMacroState) {
+		storage.aiMacroState = { selectedMacro: macroType, fieldValues: {} };
+	}
+	storage.aiMacroState.selectedMacro = macroType;
+	storage.aiMacroState.fieldValues[macroType] = fieldValues;
+	storage.aiMacroState.productContext = productContext;
+	await setStorage(storage);
+}
+
+// Restore field values after panel is rendered
+function restoreAIMacroFieldValues(macroType, state) {
+	if (!state?.fieldValues?.[macroType]) return;
+
+	const savedValues = state.fieldValues[macroType];
+	const config = AI_MACRO_CONFIGS[macroType];
+	if (!config) return;
+
+	for (const field of config.fields) {
+		const el = document.getElementById(`ai-${field.id}`);
+		if (!el || savedValues[field.id] === undefined) continue;
+
+		if (field.type === 'checkbox') {
+			/** @type {HTMLInputElement} */ (el).checked = savedValues[field.id];
+		} else if (field.type === 'multiselect') {
+			const checkboxes = el.querySelectorAll('input[type="checkbox"]');
+			checkboxes.forEach(cb => {
+				/** @type {HTMLInputElement} */ (cb).checked = savedValues[field.id]?.includes(/** @type {HTMLInputElement} */ (cb).value);
+			});
+		} else {
+			/** @type {HTMLInputElement} */ (el).value = savedValues[field.id];
+		}
+	}
+
+	// Restore product context if saved
+	if (state.productContext && APP.DOM.aiProductContext) {
+		APP.DOM.aiProductContext.value = state.productContext;
+	}
+}
+
+// Initialize AI macro panel from storage
+async function initAIMacroFromStorage() {
+	const storage = await getStorage();
+	const state = storage?.aiMacroState;
+	const savedMacro = state?.selectedMacro || 'dataset';
+
+	if (APP.DOM.aiMacroSelect) {
+		APP.DOM.aiMacroSelect.value = savedMacro;
+	}
+
+	renderAIMacroPanel(savedMacro);
+	restoreAIMacroFieldValues(savedMacro, state);
 }
 
 async function fetchCSV(url, name, allowCache = true) {
@@ -1475,8 +1576,22 @@ function bindListeners() {
 
 		// AI MAGIC
 		if (this.DOM.aiMacroSelect) {
-			this.DOM.aiMacroSelect.addEventListener('change', () => {
-				renderAIMacroPanel(this.DOM.aiMacroSelect.value);
+			this.DOM.aiMacroSelect.addEventListener('change', async () => {
+				// Save current macro's field values before switching
+				const currentMacro = STORAGE?.aiMacroState?.selectedMacro || 'dataset';
+				await saveAIMacroFieldValues(currentMacro);
+
+				// Get fresh storage and render new panel
+				const storage = await getStorage();
+				const newMacro = this.DOM.aiMacroSelect.value;
+				renderAIMacroPanel(newMacro);
+				restoreAIMacroFieldValues(newMacro, storage?.aiMacroState);
+
+				// Update selected macro in storage
+				if (storage.aiMacroState) {
+					storage.aiMacroState.selectedMacro = newMacro;
+					await setStorage(storage);
+				}
 			});
 		}
 
@@ -1486,10 +1601,26 @@ function bindListeners() {
 				if (!context) return;
 
 				const macroType = this.DOM.aiMacroSelect.value;
+				// Save field values before running
+				await saveAIMacroFieldValues(macroType);
+
 				const params = gatherAIParams(macroType, context.projectId, context.region);
 				track('ai-magic', { macroType, ...params });
 				await runAIMacro(macroType, params);
 			});
+		}
+
+		// Save product context on input (debounced)
+		if (this.DOM.aiProductContext) {
+			let productContextTimer = null;
+			const saveProductContext = () => {
+				clearTimeout(productContextTimer);
+				productContextTimer = setTimeout(async () => {
+					const macroType = this.DOM.aiMacroSelect?.value || 'dataset';
+					await saveAIMacroFieldValues(macroType);
+				}, 300);
+			};
+			this.DOM.aiProductContext.addEventListener('input', saveProductContext);
 		}
 
 		// AI Results actions
@@ -1542,7 +1673,7 @@ function bindListeners() {
 
 		// Initialize AI Magic
 		checkAIMagicEnabled();
-		renderAIMacroPanel('dataset');
+		initAIMacroFromStorage();
 	}
 	catch (e) {
 		track('error: bindListeners', { error: e });

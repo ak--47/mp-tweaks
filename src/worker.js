@@ -112,6 +112,10 @@ const STORAGE_MODEL = {
 		startTime: null,     // Date.now() when job started
 		result: null,        // API response
 		error: null          // Error message if failed
+	},
+	aiMacroState: {
+		selectedMacro: 'dataset',  // Last selected macro type
+		fieldValues: {}            // Cached field values per macro: { dataset: { prompt: '...', ... }, ... }
 	}
 };
 
@@ -159,6 +163,10 @@ async function init() {
 			startTime: null,
 			result: null,
 			error: null
+		},
+		aiMacroState: raw.aiMacroState || {
+			selectedMacro: 'dataset',
+			fieldValues: {}
 		}
 	};
 
@@ -625,7 +633,7 @@ async function messageExtension(action, data) {
 	}
 }
 
-const AI_JOB_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const AI_JOB_TIMEOUT = 15 * 60 * 1000; // 15 minutes
 
 async function runAIMacro(macroType, params) {
 	const endpoints = {
@@ -633,6 +641,7 @@ async function runAIMacro(macroType, params) {
 		'replay': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/meeple-job',
 		'dataset': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-dataset',
 		'schema': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-schema',
+		'dashboard': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-dash-gen',
 		'tags': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-tags',
 		'rename-reports': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-rename-reports',
 		'rename-entities': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-rename-entities'
@@ -667,6 +676,11 @@ async function runAIMacro(macroType, params) {
 		apiParams.user_id = storage.whoami.email;
 	}
 	apiParams.client_id = 'mptweaks';
+
+	// Add model param for all AI macros except replay
+	if (macroType !== 'replay') {
+		apiParams.model = 'gemini-3-flash-preview';
+	}
 
 	console.log('mp-tweaks: AI macro request', { url, apiParams });
 
@@ -709,6 +723,8 @@ async function runAIMacro(macroType, params) {
 		}
 
 		const result = await response.json();
+		// Add macro_name to result for tracking/logging
+		result.macro_name = macroType;
 		console.log('mp-tweaks: AI macro response', result);
 
 		// Update job state to "completed"
