@@ -150,6 +150,44 @@
 					<div id="aiMagicStatus" class="ai-status">
 						<span id="aiProjectLabel" class="statusText">Project: <b>not detected</b></span>
 						<span id="aiRegionLabel" class="statusText"> | Region: <b>US</b></span>
+						<span id="aiAuthUser" class="statusText"> | Auth: <b id="aiAuthEmail">--</b></span>
+					</div>
+
+					<!-- AI Org Controls -->
+					<div class="ai-auth-row">
+						<div id="aiOrgSelector" class="ai-org-selector hidden">
+							<label>Org:</label>
+							<select id="aiOrgDropdown">
+								<!-- Options populated dynamically -->
+							</select>
+						</div>
+						<button class="button small purple" id="aiReauth">Reauth</button>
+						<svg id="aiReauthSpinner"
+							class="hidden"
+							width="18px"
+							height="18px"
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 100 100"
+							preserveAspectRatio="xMidYMid"
+							style="background: none;">
+							<circle cx="50"
+								cy="50"
+								fill="none"
+								stroke="#DF7800"
+								stroke-width="6"
+								r="30"
+								stroke-dasharray="141.37166941154067 49.12388980384689"
+								transform="rotate(72.4232 50 50)">
+								<animateTransform attributeName="transform"
+									type="rotate"
+									calcMode="linear"
+									values="0 50 50;360 50 50"
+									keyTimes="0;1"
+									dur="1.9s"
+									begin="0s"
+									repeatCount="indefinite"></animateTransform>
+							</circle>
+						</svg>
 					</div>
 
 					<!-- Macro Selector Dropdown -->
