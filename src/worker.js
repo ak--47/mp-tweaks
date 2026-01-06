@@ -81,7 +81,7 @@ const STORAGE_MODEL = {
 	version: APP_VERSION,
 	persistScripts: [],
 	serviceAcct: { user: '', pass: '' },
-	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [] },
+	whoami: { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [], timestamp: 0 },
 	sessionReplay: { token: "", enabled: false, tabId: 0 },
 	verbose: true,
 	modHeaders: { headers: [], enabled: false, savedHeaders: [] },
@@ -137,7 +137,7 @@ async function init() {
 		sessionReplay: raw.sessionReplay || { token: "", enabled: false, tabId: 0 },
 		modHeaders: raw.modHeaders || { headers: [], enabled: false, savedHeaders: [] },
 		responseOverrides: raw.responseOverrides || {},
-		whoami: raw.whoami || { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [] },
+		whoami: raw.whoami || { name: '', email: '', oauthToken: '', orgId: '', orgName: '', ownedOrgs: [], timestamp: 0 },
 		sectionStates: raw.sectionStates || {
 			modHeader: { expanded: true },
 			demoLinks: { expanded: true },
@@ -194,10 +194,27 @@ async function init() {
 		STORAGE = raw;
 	}
 
-	if (!STORAGE?.whoami?.email?.includes('@mixpanel.com')) {
+	// Token refresh: fetch user if not logged in OR token is older than 5 days
+	const TOKEN_MAX_AGE = 5 * 24 * 60 * 60 * 1000; // 5 days
+	const tokenAge = Date.now() - (STORAGE?.whoami?.timestamp || 0);
+	const hasValidEmail = STORAGE?.whoami?.email?.includes('@mixpanel.com');
+	const needsRefresh = !hasValidEmail || tokenAge > TOKEN_MAX_AGE;
+	console.log("mp-tweaks: token check", { hasValidEmail, tokenAge: Math.round(tokenAge / 1000 / 60 / 60) + 'h', needsRefresh });
+
+	if (needsRefresh) {
 		console.log("mp-tweaks: fetching user...");
+		// Preserve current org selection before refresh
+		const currentOrgId = STORAGE?.whoami?.orgId;
+		const currentOrgName = STORAGE?.whoami?.orgName;
+
 		const user = await getUser();
 		if (user?.email) {
+			// Restore user's org selection if they had one and it's still valid
+			if (currentOrgId && user.ownedOrgs?.some(o => o.id === currentOrgId)) {
+				user.orgId = currentOrgId;
+				user.orgName = currentOrgName;
+			}
+			user.timestamp = Date.now();
 			STORAGE.whoami = user;
 			await setStorage(STORAGE);
 		}
@@ -719,7 +736,11 @@ async function runAIMacro(macroType, params) {
 
 		if (!response.ok) {
 			const errorText = await response.text();
-			throw new Error(`API Error: ${response.status} - ${errorText}`);
+			let errorMsg = `API Error: ${response.status} - ${errorText}`;
+			if (response.status === 401) {
+				errorMsg += '\n\nTry clicking the Reauth button to refresh your access token.';
+			}
+			throw new Error(errorMsg);
 		}
 
 		const result = await response.json();

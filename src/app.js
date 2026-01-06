@@ -1066,6 +1066,11 @@ function cacheDOM() {
 	this.DOM.aiJobProject = document.querySelector('#aiJobProject');
 	this.DOM.aiSaveResults = document.querySelector('#aiSaveResults');
 	this.DOM.aiClearResults = document.querySelector('#aiClearResults');
+	this.DOM.aiAuthEmail = document.querySelector('#aiAuthEmail');
+	this.DOM.aiOrgSelector = document.querySelector('#aiOrgSelector');
+	this.DOM.aiOrgDropdown = document.querySelector('#aiOrgDropdown');
+	this.DOM.aiReauth = document.querySelector('#aiReauth');
+	this.DOM.aiReauthSpinner = document.querySelector('#aiReauthSpinner');
 
 }
 
@@ -1108,6 +1113,18 @@ function loadInterface() {
 			this.DOM.authUserDisplay?.classList.add('hidden');
 		}
 
+		// AI Magic auth controls
+		if (this.DOM.aiAuthEmail) {
+			this.DOM.aiAuthEmail.textContent = whoami.email || '--';
+		}
+		if (ownedOrgs.length > 0 && this.DOM.aiOrgSelector && this.DOM.aiOrgDropdown) {
+			this.DOM.aiOrgSelector.classList.remove('hidden');
+			this.DOM.aiOrgDropdown.innerHTML = ownedOrgs.map(org =>
+				`<option value="${org.id}" ${org.id === whoami.orgId ? 'selected' : ''}>${org.name} (${org.id})</option>`
+			).join('');
+		} else if (this.DOM.aiOrgSelector) {
+			this.DOM.aiOrgSelector.classList.add('hidden');
+		}
 
 		//session replay labels + token
 		if (sessionReplay.token) this.DOM.sessionReplayToken.value = sessionReplay.token;
@@ -1213,41 +1230,91 @@ function bindListeners() {
 
 		});
 
-		//RESET USER
-		this.DOM.resetUser.addEventListener('click', async () => {
+		//RESET USER - shared handler for both reauth buttons
+		const handleReauth = async (source) => {
+			// Disable both reauth buttons
+			this.DOM.resetUser.disabled = true;
+			if (this.DOM.aiReauth) {
+				this.DOM.aiReauth.disabled = true;
+			}
+
+			// Show loading states - Project Creator
 			this.DOM.projectDetails.classList.add('hidden');
 			this.DOM.makeProjectSpinner.classList.remove('hidden');
 			this.DOM.makeProject.disabled = true;
+			if (this.DOM.authUserEmail) {
+				this.DOM.authUserEmail.textContent = '----';
+			}
+
+			// Show loading states - AI Magic
+			if (this.DOM.aiAuthEmail) {
+				this.DOM.aiAuthEmail.textContent = '--';
+			}
+			if (this.DOM.aiOrgSelector) {
+				this.DOM.aiOrgSelector.classList.add('hidden');
+			}
+			if (this.DOM.aiReauthSpinner) {
+				this.DOM.aiReauthSpinner.classList.remove('hidden');
+			}
 
 			try {
 				const newUser = await messageWorker('reset-user');
-				const { ownedOrgs = [], orgId, orgName, name } = newUser;
+				const { ownedOrgs = [], orgId, orgName, name, email } = newUser;
 
 				// Refresh the dropdown with new orgs
 				if (ownedOrgs.length > 0) {
-					this.DOM.orgSelector.classList.remove('hidden');
-					this.DOM.orgDropdown.innerHTML = ownedOrgs.map(org =>
+					const optionsHtml = ownedOrgs.map(org =>
 						`<option value="${org.id}" ${org.id === orgId ? 'selected' : ''}>${org.name} (${org.id})</option>`
 					).join('');
+
+					this.DOM.orgSelector.classList.remove('hidden');
+					this.DOM.orgDropdown.innerHTML = optionsHtml;
+
+					// Also update AI dropdowns
+					if (this.DOM.aiOrgSelector && this.DOM.aiOrgDropdown) {
+						this.DOM.aiOrgSelector.classList.remove('hidden');
+						this.DOM.aiOrgDropdown.innerHTML = optionsHtml;
+					}
 				} else if (orgId) {
 					this.DOM.orgSelector.classList.remove('hidden');
 					this.DOM.orgDropdown.innerHTML = `<option value="${orgId}">${orgName} (${orgId})</option>`;
+					if (this.DOM.aiOrgSelector && this.DOM.aiOrgDropdown) {
+						this.DOM.aiOrgSelector.classList.remove('hidden');
+						this.DOM.aiOrgDropdown.innerHTML = this.DOM.orgDropdown.innerHTML;
+					}
 				}
-				track('reset-user', { name, orgId, numOrgs: ownedOrgs.length });
 
-			}
-			catch (e) {
-				track('error: reset-user', { error: e });
+				// Update emails
+				if (this.DOM.aiAuthEmail) {
+					this.DOM.aiAuthEmail.textContent = email || '--';
+				}
+				if (this.DOM.authUserEmail) {
+					this.DOM.authUserEmail.textContent = email || 'unknown';
+				}
+				track(source === 'ai' ? 'ai-reauth' : 'reset-user', { name, email, orgId, numOrgs: ownedOrgs.length });
+
+			} catch (e) {
+				console.error('mp-tweaks: reauth error', e);
+				track(`error: ${source === 'ai' ? 'ai-reauth' : 'reset-user'}`, { error: e });
 				this.DOM.projectDetails.value = `Error!\n${e}`;
 			}
 
+			// Re-enable both reauth buttons and hide spinners
 			this.DOM.makeProjectSpinner.classList.add('hidden');
 			this.DOM.projectDetails.classList.add('hidden');
 			this.DOM.makeProject.disabled = false;
+			this.DOM.resetUser.disabled = false;
+			if (this.DOM.aiReauth) {
+				this.DOM.aiReauth.disabled = false;
+			}
+			if (this.DOM.aiReauthSpinner) {
+				this.DOM.aiReauthSpinner.classList.add('hidden');
+			}
+		};
 
-		});
+		this.DOM.resetUser.addEventListener('click', () => handleReauth('project'));
 
-		// ORG DROPDOWN CHANGE - persist selection
+		// ORG DROPDOWN CHANGE - persist selection and sync AI dropdown
 		this.DOM.orgDropdown.addEventListener('change', async () => {
 			const selectedOrgId = this.DOM.orgDropdown.value;
 			const selectedOption = this.DOM.orgDropdown.options[this.DOM.orgDropdown.selectedIndex];
@@ -1259,8 +1326,40 @@ function bindListeners() {
 			storage.whoami.orgName = selectedOrgName;
 			await setStorage(storage);
 
+			// Sync AI dropdown
+			if (this.DOM.aiOrgDropdown) {
+				this.DOM.aiOrgDropdown.value = selectedOrgId;
+			}
+
 			track('org-changed', { orgId: selectedOrgId, orgName: selectedOrgName });
 		});
+
+		// AI ORG DROPDOWN CHANGE - sync with Project Creator dropdown
+		if (this.DOM.aiOrgDropdown) {
+			this.DOM.aiOrgDropdown.addEventListener('change', async () => {
+				const selectedOrgId = this.DOM.aiOrgDropdown.value;
+				const selectedOption = this.DOM.aiOrgDropdown.options[this.DOM.aiOrgDropdown.selectedIndex];
+				const selectedOrgName = selectedOption.text.replace(/ \(\d+\)$/, '');
+
+				// Update storage
+				const storage = await getStorage();
+				storage.whoami.orgId = selectedOrgId;
+				storage.whoami.orgName = selectedOrgName;
+				await setStorage(storage);
+
+				// Sync Project Creator dropdown
+				if (this.DOM.orgDropdown) {
+					this.DOM.orgDropdown.value = selectedOrgId;
+				}
+
+				track('ai-org-changed', { orgId: selectedOrgId, orgName: selectedOrgName });
+			});
+		}
+
+		// AI REAUTH BUTTON - uses shared handler
+		if (this.DOM.aiReauth) {
+			this.DOM.aiReauth.addEventListener('click', () => handleReauth('ai'));
+		}
 
 		// QUERY API BUILDER
 		this.DOM.buildChartPayload.addEventListener('click', () => {
