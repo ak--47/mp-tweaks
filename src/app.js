@@ -219,6 +219,21 @@ function extractRegion(url) {
 	return 'US';
 }
 
+function validateAIMacroFields(macroType) {
+	const config = AI_MACRO_CONFIGS[macroType];
+	if (!config) return true; // Unknown macro, let it pass
+
+	// Check required fields for dataset and e2e
+	if (macroType === 'dataset' || macroType === 'e2e') {
+		const promptField = document.querySelector('#ai-prompt');
+		if (!promptField || !promptField.value?.trim()) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
 async function checkAIMagicEnabled() {
 	try {
 		const tab = await getCurrentTab();
@@ -229,9 +244,19 @@ async function checkAIMagicEnabled() {
 
 		if (projectId) {
 			if (APP.DOM.aiProjectLabel) APP.DOM.aiProjectLabel.textContent = projectId;
+
+			// Check field validation
+			const macroType = APP.DOM.aiMacroSelect?.value || 'dataset';
+			const fieldsValid = validateAIMacroFields(macroType);
+
 			if (APP.DOM.aiGoButton) {
-				APP.DOM.aiGoButton.disabled = false;
-				APP.DOM.aiGoButton.textContent = 'Go!';
+				if (fieldsValid) {
+					APP.DOM.aiGoButton.disabled = false;
+					APP.DOM.aiGoButton.textContent = 'Go!';
+				} else {
+					APP.DOM.aiGoButton.disabled = true;
+					APP.DOM.aiGoButton.textContent = 'Go! (fill required fields)';
+				}
 			}
 			return { projectId, region };
 		} else {
@@ -244,6 +269,12 @@ async function checkAIMagicEnabled() {
 		}
 	} catch (e) {
 		console.error('mp-tweaks: error checking AI Magic enabled:', e);
+		// Ensure button is disabled on error
+		if (APP.DOM.aiProjectLabel) APP.DOM.aiProjectLabel.textContent = 'not detected';
+		if (APP.DOM.aiGoButton) {
+			APP.DOM.aiGoButton.disabled = true;
+			APP.DOM.aiGoButton.textContent = 'Go! (not inside a mixpanel project)';
+		}
 		return null;
 	}
 }
@@ -435,7 +466,7 @@ const AI_MACRO_CONFIGS = {
 		title: 'AI End-to-End',
 		description: 'Generate demo data, create dashboards, enrich schema, and tag events in one step.',
 		fields: [
-			{ id: 'prompt', type: 'textarea', label: 'Product Description', placeholder: 'Describe the product (e.g., "B2B SaaS project management tool like Asana")' },
+			{ id: 'prompt', type: 'textarea', label: 'Product Description', placeholder: 'Describe your app, its key features, and the main events/properties you want to track. Example: "E-commerce platform with user registration, product browsing, cart management, and checkout. Key events: Sign Up, Product Viewed, Add to Cart, Purchase Complete. Key properties: product_id, price, category, user_type."' },
 			{ id: 'num_users', type: 'number', label: 'Number of Users', default: 5000, min: 10, max: 10000 },
 			{ id: 'num_events', type: 'number', label: 'Number of Events', default: 250000, min: 100, max: 500000 },
 			{ id: 'num_days', type: 'number', label: 'Days of Data', default: 60, min: 1, max: 365 },
@@ -455,7 +486,7 @@ const AI_MACRO_CONFIGS = {
 		title: 'AI Dataset Generator',
 		description: 'Generate realistic DEMO DATA for your project.',
 		fields: [
-			{ id: 'prompt', type: 'textarea', label: 'Dataset Description', placeholder: 'Describe the app you want demo data for...' },
+			{ id: 'prompt', type: 'textarea', label: 'Dataset Description', placeholder: 'Describe your app, its key features, and the main events/properties you want to track. Example: "E-commerce platform with user registration, product browsing, cart management, and checkout. Key events: Sign Up, Product Viewed, Add to Cart, Purchase Complete. Key properties: product_id, price, category, user_type."' },
 			{ id: 'num_users', type: 'number', label: 'Number of Users', default: 500, min: 10, max: 10000 },
 			{ id: 'num_events', type: 'number', label: 'Number of Events', default: 25000, min: 100, max: 500000 },
 			{ id: 'num_days', type: 'number', label: 'Days of Data', default: 30, min: 1, max: 365 }
@@ -469,7 +500,8 @@ const AI_MACRO_CONFIGS = {
 			{ id: 'target', type: 'select', label: 'Target Entities', options: ['all', 'events', 'properties', 'users'] },
 			{ id: 'casing', type: 'select', label: 'Casing Style', options: ['title', 'lower'] },
 			{ id: 'skip_existing', type: 'checkbox', label: 'Skip entities with existing values', default: true },
-			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' }
+			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' },
+			{ id: 'auto_hide', type: 'checkbox', label: 'Auto-hide unused events/properties', default: true }
 		]
 	},
 	'dashboard': {
@@ -542,6 +574,8 @@ function renderAIMacroPanel(macroType) {
 		clearTimeout(aiFieldSaveTimer);
 		aiFieldSaveTimer = setTimeout(() => {
 			saveAIMacroFieldValues(macroType);
+			// Revalidate Go button state for field changes
+			checkAIMagicEnabled();
 		}, 300);
 	};
 
@@ -714,6 +748,9 @@ async function initAIMacroFromStorage() {
 
 	renderAIMacroPanel(savedMacro);
 	restoreAIMacroFieldValues(savedMacro, state);
+
+	// Revalidate button state after restoring field values
+	checkAIMagicEnabled();
 }
 
 async function fetchCSV(url, name, allowCache = true) {
@@ -1691,6 +1728,9 @@ function bindListeners() {
 					storage.aiMacroState.selectedMacro = newMacro;
 					await setStorage(storage);
 				}
+
+				// Revalidate Go button state
+				checkAIMagicEnabled();
 			});
 		}
 

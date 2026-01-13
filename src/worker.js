@@ -716,9 +716,13 @@ async function runAIMacro(macroType, params) {
 	STORAGE = storage;
 
 	try {
-		// Create timeout promise
+		// Create timeout promise with project_id in error message
 		const timeoutPromise = new Promise((_, reject) => {
-			setTimeout(() => reject(new Error('Job timed out')), AI_JOB_TIMEOUT);
+			setTimeout(() => {
+				const projectId = apiParams.project_id || 'unknown';
+				const errorMsg = `Extension service worker timed out; check Mixpanel, your job probably finished:\nhttps://mixpanel.com/project/${projectId}`;
+				reject(new Error(errorMsg));
+			}, AI_JOB_TIMEOUT);
 		});
 
 		// Race between fetch and timeout
