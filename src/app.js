@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.52`;
+const APP_VERSION = `2.53`;
 // const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 // const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 // const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
@@ -99,7 +99,7 @@ async function getCurrentTab() {
 	return new Promise((resolve, reject) => {
 		chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
 			if (chrome.runtime.lastError) {
-				reject(new Error(chrome.runtime.lastError));
+				reject(new Error(chrome.runtime.lastError.message || 'Unknown error'));
 			} else if (tabs[0]) {
 				resolve(tabs[0]);
 			} else {
@@ -219,6 +219,22 @@ function extractRegion(url) {
 	return 'US';
 }
 
+function validateAIMacroFields(macroType) {
+	const config = AI_MACRO_CONFIGS[macroType];
+	if (!config) return true; // Unknown macro, let it pass
+
+	// Check required fields for dataset and e2e
+	if (macroType === 'dataset' || macroType === 'e2e') {
+		const promptField = document.querySelector('#ai-prompt');
+		// @ts-ignore
+		if (!promptField || !promptField.value?.trim()) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
 async function checkAIMagicEnabled() {
 	try {
 		const tab = await getCurrentTab();
@@ -227,13 +243,34 @@ async function checkAIMagicEnabled() {
 
 		if (APP.DOM.aiRegionLabel) APP.DOM.aiRegionLabel.textContent = region;
 
-		if (projectId) {
+		// Check if another job is running
+		const storage = await getStorage();
+		const jobRunning = storage?.aiJob?.status === 'running';
+
+		if (projectId && !jobRunning) {
 			if (APP.DOM.aiProjectLabel) APP.DOM.aiProjectLabel.textContent = projectId;
+
+			// Check field validation
+			const macroType = APP.DOM.aiMacroSelect?.value || 'dataset';
+			const fieldsValid = validateAIMacroFields(macroType);
+
 			if (APP.DOM.aiGoButton) {
-				APP.DOM.aiGoButton.disabled = false;
-				APP.DOM.aiGoButton.textContent = 'Go!';
+				if (fieldsValid) {
+					APP.DOM.aiGoButton.disabled = false;
+					APP.DOM.aiGoButton.textContent = 'Go!';
+				} else {
+					APP.DOM.aiGoButton.disabled = true;
+					APP.DOM.aiGoButton.textContent = 'Go! (fill required fields)';
+				}
 			}
 			return { projectId, region };
+		} else if (jobRunning) {
+			if (APP.DOM.aiProjectLabel) APP.DOM.aiProjectLabel.textContent = projectId || 'not detected';
+			if (APP.DOM.aiGoButton) {
+				APP.DOM.aiGoButton.disabled = true;
+				APP.DOM.aiGoButton.textContent = 'Go! (job already running)';
+			}
+			return null;
 		} else {
 			if (APP.DOM.aiProjectLabel) APP.DOM.aiProjectLabel.textContent = 'not detected';
 			if (APP.DOM.aiGoButton) {
@@ -244,6 +281,12 @@ async function checkAIMagicEnabled() {
 		}
 	} catch (e) {
 		console.error('mp-tweaks: error checking AI Magic enabled:', e);
+		// Ensure button is disabled on error
+		if (APP.DOM.aiProjectLabel) APP.DOM.aiProjectLabel.textContent = 'not detected';
+		if (APP.DOM.aiGoButton) {
+			APP.DOM.aiGoButton.disabled = true;
+			APP.DOM.aiGoButton.textContent = 'Go! (not inside a mixpanel project)';
+		}
 		return null;
 	}
 }
@@ -426,6 +469,7 @@ async function runAIMacro(macroType, params) {
 
 	} catch (e) {
 		// Error handling - worker should have updated storage, but handle UI here too
+		// @ts-ignore
 		showAIError(e.message);
 	}
 }
@@ -433,9 +477,9 @@ async function runAIMacro(macroType, params) {
 const AI_MACRO_CONFIGS = {
 	'e2e': {
 		title: 'AI End-to-End',
-		description: 'Generate demo data, create dashboards, enrich schema, and tag events in one step.',
+		description: 'Generate demo data, create dashboards, enrich schema, and tag events in one step. Its <span class="highlight-white">MAGICAL</span>',
 		fields: [
-			{ id: 'prompt', type: 'textarea', label: 'Product Description', placeholder: 'Describe the product (e.g., "B2B SaaS project management tool like Asana")' },
+			{ id: 'prompt', type: 'textarea', label: 'Product Description', placeholder: 'Describe your app, its key features, and analytics use case. Or roll the dice.', showDice: true },
 			{ id: 'num_users', type: 'number', label: 'Number of Users', default: 5000, min: 10, max: 10000 },
 			{ id: 'num_events', type: 'number', label: 'Number of Events', default: 250000, min: 100, max: 500000 },
 			{ id: 'num_days', type: 'number', label: 'Days of Data', default: 60, min: 1, max: 365 },
@@ -453,9 +497,9 @@ const AI_MACRO_CONFIGS = {
 	},
 	'dataset': {
 		title: 'AI Dataset Generator',
-		description: 'Generate realistic DEMO DATA for your project.',
+		description: 'Generate realistic <span class="highlight-white">DEMO DATA</span> for your project.',
 		fields: [
-			{ id: 'prompt', type: 'textarea', label: 'Dataset Description', placeholder: 'Describe the app you want demo data for...' },
+			{ id: 'prompt', type: 'textarea', label: 'Dataset Description', placeholder: 'Describe your app, its key features, and analytics use case. Or roll the dice.', showDice: true },
 			{ id: 'num_users', type: 'number', label: 'Number of Users', default: 500, min: 10, max: 10000 },
 			{ id: 'num_events', type: 'number', label: 'Number of Events', default: 25000, min: 100, max: 500000 },
 			{ id: 'num_days', type: 'number', label: 'Days of Data', default: 30, min: 1, max: 365 }
@@ -469,7 +513,8 @@ const AI_MACRO_CONFIGS = {
 			{ id: 'target', type: 'select', label: 'Target Entities', options: ['all', 'events', 'properties', 'users'] },
 			{ id: 'casing', type: 'select', label: 'Casing Style', options: ['title', 'lower'] },
 			{ id: 'skip_existing', type: 'checkbox', label: 'Skip entities with existing values', default: true },
-			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' }
+			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' },
+			{ id: 'auto_hide', type: 'checkbox', label: 'Auto-hide unused events/properties', default: true }
 		]
 	},
 	'dashboard': {
@@ -542,6 +587,8 @@ function renderAIMacroPanel(macroType) {
 		clearTimeout(aiFieldSaveTimer);
 		aiFieldSaveTimer = setTimeout(() => {
 			saveAIMacroFieldValues(macroType);
+			// Revalidate Go button state for field changes
+			checkAIMagicEnabled();
 		}, 300);
 	};
 
@@ -550,6 +597,38 @@ function renderAIMacroPanel(macroType) {
 		el.addEventListener('input', saveOnChange);
 		el.addEventListener('change', saveOnChange);
 	});
+
+	// Add dice button event listener for random prompt
+	const diceButton = panel.querySelector('.dice-button');
+	if (diceButton) {
+		diceButton.addEventListener('click', (e) => {
+			e.preventDefault();
+
+			// Add spinning animation
+			diceButton.classList.add('spinning');
+
+			// Select random prompt
+			const randomIndex = Math.floor(Math.random() * PROMPT_EXAMPLES.length);
+			const randomPrompt = PROMPT_EXAMPLES[randomIndex];
+
+			// Set the prompt field value
+			const promptField = document.getElementById('ai-prompt');
+			if (promptField && promptField instanceof HTMLTextAreaElement) {
+				promptField.value = randomPrompt;
+
+				// Trigger save
+				saveOnChange();
+
+				// Track the action
+				track('ai-dice-prompt', { macroType, promptIndex: randomIndex });
+			}
+
+			// Remove spinning class after animation
+			setTimeout(() => {
+				diceButton.classList.remove('spinning');
+			}, 500);
+		});
+	}
 }
 
 function renderAIField(field) {
@@ -571,8 +650,13 @@ function renderAIField(field) {
 				<input type="text" id="ai-${field.id}" placeholder="${field.placeholder || ''}">
 			</div>`;
 		case 'textarea':
+			// Only add dice for dataset and e2e macros' prompt fields
+			const hasDice = field.id === 'prompt' && field.showDice;
 			return `<div class="field-row field-row-textarea">
-				<label>${field.label}</label>
+				<label>
+					${field.label}
+					${hasDice ? '<button class="dice-button" title="Generate random prompt">🎲</button>' : ''}
+				</label>
 				<textarea id="ai-${field.id}" placeholder="${field.placeholder || ''}" rows="3"></textarea>
 			</div>`;
 		case 'number':
@@ -627,6 +711,7 @@ function gatherAIParams(macroType, projectId, region) {
 	if (productContext) params.product_context = productContext;
 
 	// Auth override
+	// @ts-ignore
 	const authType = document.querySelector('input[name="authType"]:checked')?.value || 'oauth';
 	params.authType = authType;
 
@@ -714,6 +799,9 @@ async function initAIMacroFromStorage() {
 
 	renderAIMacroPanel(savedMacro);
 	restoreAIMacroFieldValues(savedMacro, state);
+
+	// Revalidate button state after restoring field values
+	checkAIMagicEnabled();
 }
 
 async function fetchCSV(url, name, allowCache = true) {
@@ -783,6 +871,7 @@ async function getStorage(keys = null) {
 					reject(new Error(chrome.runtime.lastError.message || 'Unknown error'));
 				}
 			} else {
+				// @ts-ignore - Storage type mismatch is expected
 				STORAGE = result;
 				resolve(result);
 			}
@@ -819,6 +908,7 @@ async function setStorage(data) {
 
 // listen for messages from the worker
 function listenForWorker() {
+	// @ts-ignore
 	// @ts-ignore
 	chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
 		console.log("mp-tweaks: received message", message);
@@ -915,6 +1005,7 @@ function queryBuilderHandleCatch(data) {
 	this.DOM.randomize.classList.add('hidden');
 	this.DOM.saveChartData.classList.remove('hidden');
 	// @ts-ignore
+	// @ts-ignore
 	const region = data?.region || 'us'; //todo
 	let reportName = data?.report_query_origin || data?.tracking_props?.report_name;
 	if (reportName === 'flows') reportName = 'arb_funnels';
@@ -1001,15 +1092,22 @@ function cacheDOM() {
 	this.DOM.apiPayload = document.querySelector('#apiPayload');
 	this.DOM.origResponse = document.querySelector('#origResponse');
 
+	// Header Auth Component
+	this.DOM.headerAuth = document.getElementById('headerAuth');
+	this.DOM.headerAuthEmail = document.getElementById('headerAuthEmail');
+	this.DOM.headerOrgDropdown = document.getElementById('headerOrgDropdown');
+	this.DOM.headerReauth = document.getElementById('headerReauth');
+	this.DOM.headerReauthSpinner = document.getElementById('headerReauthSpinner');
+	this.DOM.headerToggleAll = document.getElementById('headerToggleAll');
+
 	//project creator
 	this.DOM.makeProject = document.querySelector('#makeProject');
-	this.DOM.resetUser = document.querySelector('#resetUser');
+	this.DOM.projectReauth = document.querySelector('#projectReauth');
 	this.DOM.projectDetails = document.querySelector('#projectDetails textarea');
 	this.DOM.makeProjectSpinner = document.querySelector('#makeProjectSpinner');
-	this.DOM.orgSelector = document.querySelector('#orgSelector');
-	this.DOM.orgDropdown = document.querySelector('#orgDropdown');
+	this.DOM.projectOrgName = document.getElementById('projectOrgName');
+	this.DOM.projectAuthEmail = document.getElementById('projectAuthEmail');
 	this.DOM.authUserDisplay = document.querySelector('#authUserDisplay');
-	this.DOM.authUserEmail = document.querySelector('#authUserEmail');
 
 
 
@@ -1067,64 +1165,84 @@ function cacheDOM() {
 	this.DOM.aiSaveResults = document.querySelector('#aiSaveResults');
 	this.DOM.aiClearResults = document.querySelector('#aiClearResults');
 	this.DOM.aiAuthEmail = document.querySelector('#aiAuthEmail');
-	this.DOM.aiOrgSelector = document.querySelector('#aiOrgSelector');
-	this.DOM.aiOrgDropdown = document.querySelector('#aiOrgDropdown');
 	this.DOM.aiReauth = document.querySelector('#aiReauth');
 	this.DOM.aiReauthSpinner = document.querySelector('#aiReauthSpinner');
 
 }
 
-function loadInterface() {
+async function initAuth() {
+	const storage = await getStorage();
+	const whoami = storage?.whoami;
+
+	if (whoami?.email) {
+		// Show header auth
+		if (APP.DOM.headerAuth) {
+			APP.DOM.headerAuth.classList.remove('hidden');
+		}
+
+		// Update header auth display
+		if (APP.DOM.headerAuthEmail) {
+			APP.DOM.headerAuthEmail.textContent = whoami.email;
+		}
+
+		// Populate header org dropdown with IDs
+		if (APP.DOM.headerOrgDropdown && whoami.ownedOrgs?.length > 0) {
+			APP.DOM.headerOrgDropdown.innerHTML = whoami.ownedOrgs.map(org =>
+				`<option value="${org.id}" ${org.id === whoami.orgId ? 'selected' : ''}>${org.name} (${org.id})</option>`
+			).join('');
+		}
+
+		// Update Project Creator display
+		if (APP.DOM.projectOrgName) {
+			APP.DOM.projectOrgName.textContent = whoami.orgName || '--';
+		}
+		if (APP.DOM.projectAuthEmail) {
+			APP.DOM.projectAuthEmail.textContent = whoami.email;
+		}
+		if (APP.DOM.authUserDisplay) {
+			APP.DOM.authUserDisplay.classList.remove('hidden');
+		}
+
+		// Update AI Magic display (no org needed)
+		if (APP.DOM.aiAuthEmail) {
+			APP.DOM.aiAuthEmail.textContent = whoami.email;
+		}
+
+		// Show/hide buttons based on auth state
+		if (APP.DOM.makeProject) {
+			APP.DOM.makeProject.disabled = false;
+			APP.DOM.makeProject.textContent = 'Make Project';
+		}
+	} else {
+		// Hide header auth when not authenticated
+		if (APP.DOM.headerAuth) {
+			APP.DOM.headerAuth.classList.add('hidden');
+		}
+
+		// Show unauthenticated state
+		if (APP.DOM.projectAuthEmail) {
+			APP.DOM.projectAuthEmail.textContent = 'not authenticated';
+		}
+		if (APP.DOM.aiAuthEmail) {
+			APP.DOM.aiAuthEmail.textContent = '--';
+		}
+
+		if (APP.DOM.makeProject) {
+			APP.DOM.makeProject.disabled = true;
+			APP.DOM.makeProject.textContent = 'Make Project (authenticate first)';
+		}
+	}
+}
+
+async function loadInterface() {
 	try {
-		const { persistScripts, whoami, sessionReplay, modHeaders } = STORAGE;
+		const { persistScripts, sessionReplay, modHeaders } = STORAGE;
 
 		//load toggle states
 		APP.setCheckbox(persistScripts);
 
-		//org dropdown
-		const ownedOrgs = whoami.ownedOrgs || [];
-		if (ownedOrgs.length > 0) {
-			this.DOM.orgSelector.classList.remove('hidden');
-			this.DOM.makeProject.disabled = false;
-
-			// Populate dropdown
-			this.DOM.orgDropdown.innerHTML = ownedOrgs.map(org =>
-				`<option value="${org.id}" ${org.id === whoami.orgId ? 'selected' : ''}>${org.name} (${org.id})</option>`
-			).join('');
-		}
-		else if (whoami.orgId) {
-			// Fallback for old data structure
-			this.DOM.orgSelector.classList.remove('hidden');
-			this.DOM.makeProject.disabled = false;
-			this.DOM.orgDropdown.innerHTML = `<option value="${whoami.orgId}">${whoami.orgName} (${whoami.orgId})</option>`;
-		}
-		else {
-			this.DOM.orgSelector.classList.add('hidden');
-			this.DOM.makeProject.disabled = true;
-		}
-
-		// Display authenticated user in Project Creator section
-		if (whoami.email) {
-			this.DOM.authUserDisplay?.classList.remove('hidden');
-			if (this.DOM.authUserEmail) {
-				this.DOM.authUserEmail.textContent = whoami.email;
-			}
-		} else {
-			this.DOM.authUserDisplay?.classList.add('hidden');
-		}
-
-		// AI Magic auth controls
-		if (this.DOM.aiAuthEmail) {
-			this.DOM.aiAuthEmail.textContent = whoami.email || '--';
-		}
-		if (ownedOrgs.length > 0 && this.DOM.aiOrgSelector && this.DOM.aiOrgDropdown) {
-			this.DOM.aiOrgSelector.classList.remove('hidden');
-			this.DOM.aiOrgDropdown.innerHTML = ownedOrgs.map(org =>
-				`<option value="${org.id}" ${org.id === whoami.orgId ? 'selected' : ''}>${org.name} (${org.id})</option>`
-			).join('');
-		} else if (this.DOM.aiOrgSelector) {
-			this.DOM.aiOrgSelector.classList.add('hidden');
-		}
+		// Initialize auth display
+		await initAuth();
 
 		//session replay labels + token
 		if (sessionReplay.token) this.DOM.sessionReplayToken.value = sessionReplay.token;
@@ -1191,6 +1309,7 @@ function bindListeners() {
 		//FEATURE FLAGS
 		this.DOM.toggles.forEach(function (checkbox) {
 			// @ts-ignore
+			// @ts-ignore
 			checkbox.addEventListener('click', function (event) {
 				const data = APP.getCheckbox();
 				setStorage({ 'persistScripts': data }).then(() => { });
@@ -1230,129 +1349,161 @@ function bindListeners() {
 
 		});
 
-		//RESET USER - shared handler for both reauth buttons
+		//RESET USER - shared handler for all reauth buttons
 		const handleReauth = async (source) => {
-			// Disable both reauth buttons
-			this.DOM.resetUser.disabled = true;
-			if (this.DOM.aiReauth) {
-				this.DOM.aiReauth.disabled = true;
+			// Disable all reauth buttons
+			const buttons = [
+				APP.DOM.headerReauth,
+				APP.DOM.projectReauth,
+				APP.DOM.aiReauth
+			].filter(Boolean);
+
+			buttons.forEach(btn => btn.disabled = true);
+
+			// Show loading state for all auth displays
+			if (APP.DOM.headerAuthEmail) {
+				APP.DOM.headerAuthEmail.textContent = '---';
+			}
+			if (APP.DOM.projectAuthEmail) {
+				APP.DOM.projectAuthEmail.textContent = '---';
+			}
+			if (APP.DOM.aiAuthEmail) {
+				APP.DOM.aiAuthEmail.textContent = '---';
 			}
 
-			// Show loading states - Project Creator
-			this.DOM.projectDetails.classList.add('hidden');
-			this.DOM.makeProjectSpinner.classList.remove('hidden');
-			this.DOM.makeProject.disabled = true;
-			if (this.DOM.authUserEmail) {
-				this.DOM.authUserEmail.textContent = '----';
+			// Clear org dropdown to show it's refreshing
+			if (APP.DOM.headerOrgDropdown) {
+				APP.DOM.headerOrgDropdown.innerHTML = '<option>---</option>';
+			}
+			if (APP.DOM.projectOrgName) {
+				APP.DOM.projectOrgName.textContent = '---';
 			}
 
-			// Show loading states - AI Magic
-			if (this.DOM.aiAuthEmail) {
-				this.DOM.aiAuthEmail.textContent = '--';
+			// Show appropriate spinner based on source
+			if (source === 'header' && APP.DOM.headerReauthSpinner) {
+				APP.DOM.headerReauthSpinner.classList.remove('hidden');
 			}
-			if (this.DOM.aiOrgSelector) {
-				this.DOM.aiOrgSelector.classList.add('hidden');
+			if (source === 'project') {
+				if (APP.DOM.makeProjectSpinner) {
+					APP.DOM.makeProjectSpinner.classList.remove('hidden');
+				}
+				if (this.DOM.projectDetails) {
+					this.DOM.projectDetails.classList.add('hidden');
+				}
+				this.DOM.makeProject.disabled = true;
 			}
-			if (this.DOM.aiReauthSpinner) {
-				this.DOM.aiReauthSpinner.classList.remove('hidden');
+			if (source === 'ai' && APP.DOM.aiReauthSpinner) {
+				APP.DOM.aiReauthSpinner.classList.remove('hidden');
 			}
 
 			try {
-				const newUser = await messageWorker('reset-user');
-				const { ownedOrgs = [], orgId, orgName, name, email } = newUser;
+				await messageWorker('reset-user');
 
-				// Refresh the dropdown with new orgs
-				if (ownedOrgs.length > 0) {
-					const optionsHtml = ownedOrgs.map(org =>
-						`<option value="${org.id}" ${org.id === orgId ? 'selected' : ''}>${org.name} (${org.id})</option>`
-					).join('');
+				// Update storage with new auth data
+				await initAuth();  // Refresh all auth displays
 
-					this.DOM.orgSelector.classList.remove('hidden');
-					this.DOM.orgDropdown.innerHTML = optionsHtml;
-
-					// Also update AI dropdowns
-					if (this.DOM.aiOrgSelector && this.DOM.aiOrgDropdown) {
-						this.DOM.aiOrgSelector.classList.remove('hidden');
-						this.DOM.aiOrgDropdown.innerHTML = optionsHtml;
-					}
-				} else if (orgId) {
-					this.DOM.orgSelector.classList.remove('hidden');
-					this.DOM.orgDropdown.innerHTML = `<option value="${orgId}">${orgName} (${orgId})</option>`;
-					if (this.DOM.aiOrgSelector && this.DOM.aiOrgDropdown) {
-						this.DOM.aiOrgSelector.classList.remove('hidden');
-						this.DOM.aiOrgDropdown.innerHTML = this.DOM.orgDropdown.innerHTML;
-					}
+				track(`reauth-${source}`, { source });
+			} catch (error) {
+				console.error('mp-tweaks: reauth error:', error);
+				const errorMessage = error instanceof Error ? error.message : String(error);
+				track('reauth-error', { source, error: errorMessage });
+				if (this.DOM.projectDetails) {
+					this.DOM.projectDetails.value = `Error!\n${errorMessage}`;
 				}
+			} finally {
+				// Re-enable buttons and hide spinners
+				buttons.forEach(btn => btn.disabled = false);
 
-				// Update emails
-				if (this.DOM.aiAuthEmail) {
-					this.DOM.aiAuthEmail.textContent = email || '--';
+				if (APP.DOM.headerReauthSpinner) {
+					APP.DOM.headerReauthSpinner.classList.add('hidden');
 				}
-				if (this.DOM.authUserEmail) {
-					this.DOM.authUserEmail.textContent = email || 'unknown';
+				if (APP.DOM.makeProjectSpinner) {
+					APP.DOM.makeProjectSpinner.classList.add('hidden');
 				}
-				track(source === 'ai' ? 'ai-reauth' : 'reset-user', { name, email, orgId, numOrgs: ownedOrgs.length });
-
-			} catch (e) {
-				console.error('mp-tweaks: reauth error', e);
-				track(`error: ${source === 'ai' ? 'ai-reauth' : 'reset-user'}`, { error: e });
-				this.DOM.projectDetails.value = `Error!\n${e}`;
-			}
-
-			// Re-enable both reauth buttons and hide spinners
-			this.DOM.makeProjectSpinner.classList.add('hidden');
-			this.DOM.projectDetails.classList.add('hidden');
-			this.DOM.makeProject.disabled = false;
-			this.DOM.resetUser.disabled = false;
-			if (this.DOM.aiReauth) {
-				this.DOM.aiReauth.disabled = false;
-			}
-			if (this.DOM.aiReauthSpinner) {
-				this.DOM.aiReauthSpinner.classList.add('hidden');
+				if (APP.DOM.aiReauthSpinner) {
+					APP.DOM.aiReauthSpinner.classList.add('hidden');
+				}
+				if (this.DOM.projectDetails) {
+					this.DOM.projectDetails.classList.add('hidden');
+				}
+				this.DOM.makeProject.disabled = false;
 			}
 		};
 
-		this.DOM.resetUser.addEventListener('click', () => handleReauth('project'));
+		// Header reauth button
+		if (this.DOM.headerReauth) {
+			this.DOM.headerReauth.addEventListener('click', () => handleReauth('header'));
+		}
 
-		// ORG DROPDOWN CHANGE - persist selection and sync AI dropdown
-		this.DOM.orgDropdown.addEventListener('change', async () => {
-			const selectedOrgId = this.DOM.orgDropdown.value;
-			const selectedOption = this.DOM.orgDropdown.options[this.DOM.orgDropdown.selectedIndex];
-			const selectedOrgName = selectedOption.text.replace(/ \(\d+\)$/, ''); // Extract name without ID
+		// Toggle All button
+		if (this.DOM.headerToggleAll) {
+			this.DOM.headerToggleAll.addEventListener('click', () => {
+				const isExpanded = !this.DOM.headerToggleAll.classList.contains('collapsed');
+				const sections = document.querySelectorAll('.section');
 
-			// Update storage
-			const storage = await getStorage();
-			storage.whoami.orgId = selectedOrgId;
-			storage.whoami.orgName = selectedOrgName;
-			await setStorage(storage);
+				sections.forEach(section => {
+					const toggle = section.querySelector('.collapse-toggle');
+					const isCurrentlyCollapsed = section.classList.contains('collapsed');
 
-			// Sync AI dropdown
-			if (this.DOM.aiOrgDropdown) {
-				this.DOM.aiOrgDropdown.value = selectedOrgId;
-			}
+					if (isExpanded && !isCurrentlyCollapsed) {
+						// We're collapsing all, and this section is expanded - collapse it
+						section.classList.add('collapsed');
+						if (toggle) toggle.textContent = '←';
+						// Update worker state
+						const h2 = section.querySelector('h2');
+						const sectionName = h2?.getAttribute('data-section');
+						if (sectionName) {
+							messageWorker('collapse-section', { section: sectionName, collapsed: true });
+						}
+					} else if (!isExpanded && isCurrentlyCollapsed) {
+						// We're expanding all, and this section is collapsed - expand it
+						section.classList.remove('collapsed');
+						if (toggle) toggle.textContent = '↓';
+						// Update worker state
+						const h2 = section.querySelector('h2');
+						const sectionName = h2?.getAttribute('data-section');
+						if (sectionName) {
+							messageWorker('collapse-section', { section: sectionName, collapsed: false });
+						}
+					}
+				});
 
-			track('org-changed', { orgId: selectedOrgId, orgName: selectedOrgName });
-		});
+				// Toggle the button state
+				this.DOM.headerToggleAll.classList.toggle('collapsed');
 
-		// AI ORG DROPDOWN CHANGE - sync with Project Creator dropdown
-		if (this.DOM.aiOrgDropdown) {
-			this.DOM.aiOrgDropdown.addEventListener('change', async () => {
-				const selectedOrgId = this.DOM.aiOrgDropdown.value;
-				const selectedOption = this.DOM.aiOrgDropdown.options[this.DOM.aiOrgDropdown.selectedIndex];
-				const selectedOrgName = selectedOption.text.replace(/ \(\d+\)$/, '');
+				// Track the action
+				track('toggle-all', { expand: !isExpanded });
+			});
+		}
 
-				// Update storage
+		// Project Creator reauth (now just calls handler with 'project' source)
+		if (this.DOM.projectReauth) {
+			this.DOM.projectReauth.addEventListener('click', () => handleReauth('project'));
+		}
+
+		// Header org dropdown change
+		if (this.DOM.headerOrgDropdown) {
+			this.DOM.headerOrgDropdown.addEventListener('change', async (e) => {
+				const selectedOrgId = e.target.value;
 				const storage = await getStorage();
-				storage.whoami.orgId = selectedOrgId;
-				storage.whoami.orgName = selectedOrgName;
-				await setStorage(storage);
+				const selectedOrg = storage?.whoami?.ownedOrgs?.find(o => o.id === selectedOrgId);
 
-				// Sync Project Creator dropdown
-				if (this.DOM.orgDropdown) {
-					this.DOM.orgDropdown.value = selectedOrgId;
+				if (selectedOrg) {
+					// Update storage
+					storage.whoami.orgId = selectedOrg.id;
+					storage.whoami.orgName = selectedOrg.name;
+					await setStorage(storage);
+
+					// Update Project Creator display
+					if (this.DOM.projectOrgName) {
+						this.DOM.projectOrgName.textContent = selectedOrg.name;
+					}
+
+					track('header-org-changed', {
+						orgId: selectedOrg.id,
+						orgName: selectedOrg.name
+					});
 				}
-
-				track('ai-org-changed', { orgId: selectedOrgId, orgName: selectedOrgName });
 			});
 		}
 
@@ -1597,6 +1748,7 @@ function bindListeners() {
 		});
 
 		// REMOVE HEADER
+		// @ts-ignore
 		this.DOM.deletePairs.forEach((node, index) => {
 			node.addEventListener('click', (clickEv) => {
 				let row = clickEv.target.closest('.row');
@@ -1677,6 +1829,7 @@ function bindListeners() {
 		if (this.DOM.aiMacroSelect) {
 			this.DOM.aiMacroSelect.addEventListener('change', async () => {
 				// Save current macro's field values before switching
+				// @ts-ignore
 				const currentMacro = STORAGE?.aiMacroState?.selectedMacro || 'dataset';
 				await saveAIMacroFieldValues(currentMacro);
 
@@ -1691,11 +1844,21 @@ function bindListeners() {
 					storage.aiMacroState.selectedMacro = newMacro;
 					await setStorage(storage);
 				}
+
+				// Revalidate Go button state
+				checkAIMagicEnabled();
 			});
 		}
 
 		if (this.DOM.aiGoButton) {
 			this.DOM.aiGoButton.addEventListener('click', async () => {
+				// Check if another job is already running
+				const storage = await getStorage();
+				if (storage?.aiJob?.status === 'running') {
+					console.log('mp-tweaks: Another AI job is already running');
+					return; // Don't start a new job
+				}
+
 				const context = await checkAIMagicEnabled();
 				if (!context) return;
 
@@ -1759,6 +1922,7 @@ function bindListeners() {
 		// Auth type switching
 		document.querySelectorAll('input[name="authType"]').forEach(radio => {
 			radio.addEventListener('change', (e) => {
+				// @ts-ignore
 				const value = e.target.value;
 				if (this.DOM.aiCustomBearer) {
 					this.DOM.aiCustomBearer.classList.toggle('hidden', value !== 'bearer');
@@ -1773,6 +1937,22 @@ function bindListeners() {
 		// Initialize AI Magic
 		checkAIMagicEnabled();
 		initAIMacroFromStorage();
+
+		// Clean up AI job polling when popup closes
+		window.addEventListener('unload', () => {
+			if (aiJobPollInterval) {
+				clearInterval(aiJobPollInterval);
+				aiJobPollInterval = null;
+			}
+			if (aiJobTimerInterval) {
+				clearInterval(aiJobTimerInterval);
+				aiJobTimerInterval = null;
+			}
+			if (aiJobQuoteInterval) {
+				clearInterval(aiJobQuoteInterval);
+				aiJobQuoteInterval = null;
+			}
+		});
 	}
 	catch (e) {
 		track('error: bindListeners', { error: e });
@@ -2283,6 +2463,9 @@ function initCollapsibleSections() {
 function setupCollapsibleSections() {
 	// Get current storage from APP
 	APP.getStorage().then(storage => {
+		let collapsedCount = 0;
+		let expandedCount = 0;
+
 		// Set initial states for all sections based on saved preferences
 		// Do NOT initialize defaults here - the worker handles that
 		document.querySelectorAll('.section[id]').forEach(section => {
@@ -2294,12 +2477,19 @@ function setupCollapsibleSections() {
 				// Collapsed state
 				section.classList.add('collapsed');
 				if (toggle) toggle.textContent = '←';
+				collapsedCount++;
 			} else {
 				// Expanded state (default)
 				section.classList.remove('collapsed');
 				if (toggle) toggle.textContent = '↓';
+				expandedCount++;
 			}
 		});
+
+		// Set initial state of toggle all button based on majority state
+		if (APP.DOM.headerToggleAll && collapsedCount > expandedCount) {
+			APP.DOM.headerToggleAll.classList.add('collapsed');
+		}
 	});
 
 	// Add click listeners to all section headers
@@ -2406,6 +2596,7 @@ function handleDragStart(e) {
 	}
 }
 
+// @ts-ignore
 function handleDragEnd(e) {
 	try {
 		this.classList.remove('dragging');
@@ -2486,6 +2677,7 @@ function handleDrop(e) {
 	}
 }
 
+// @ts-ignore
 function handleDragLeave(e) {
 	try {
 		this.classList.remove('drag-over', 'drag-over-bottom');
@@ -2592,3 +2784,61 @@ try {
 catch (e) {
 	//noop
 }
+
+const PROMPT_EXAMPLES =
+["The Social App is an IMAGINARY social media platform that allows users to connect, share, and communicate with friends and family. It includes features such as friend requests, messaging, and content sharing. They need to understand how effective their user acquisition and engagement strategies are, as well as how users interact with the platform. Specifically, they want to analyze the 'viral loop' of their product—tracking how often a new user sends a friend request within the first hour of signup and how that correlates to long-term retention. They are also introducing a new 'Stories' feature and need to compare engagement metrics between their legacy newsfeed and this new ephemeral content to decide where to place their ad inventory.",
+
+"The SaaS App is an IMAGINARY software-as-a-service platform that provides tools for businesses to manage their documents, contacts, and other business papers that need to be signed. Similar to DocuSign, SaaS app allows for real-time collaboration, document sharing, and version control. They need to understand how different users at different companies collaborate with different documents. So they are using group analytics to build event streams for users, companies, and documents. Their Customer Success team is desperate to identify 'at-risk' accounts where document creation has dropped by 20% month-over-month, while the Product team wants to see if the new 'Auto-Sign' feature reduces the average time-to-completion for contracts.",
+
+"The Media App is an IMAGINARY video sharing platform that allows users to upload, share, and view videos. Similar to YouTube, Media App provides features like video recommendations, subscriptions, and comments. They need to understand how different users interact with different types of videos, and a specifically interested in understand engagement and retention metrics around video watch time and completeness. They are struggling to differentiate between 'casual viewers' who watch via external links and 'community members' who comment and subscribe. They want to set up a specific funnel that tracks the journey from watching a video -> clicking the creator's profile -> subscribing, to determine which content categories drive the highest subscriber conversion.",
+
+"The Health App is an IMAGINARY healthcare solution for hospitals and patients to manage health records, appointments, and telemedicine services. It includes features like appointment scheduling, health record management, and telehealth consultations. They have strict security and privacy requirements around patient data, but are trying to improve the doctor and admin experience in an effort to increase patient engagement and satisfaction. They specifically want to analyze the 'No-Show' rate for appointments. They hypothesize that patients who receive in-app push notifications confirm appointments at a higher rate than those who receive emails. They also want to track the 'Doctor's Dashboard' usage to see if a new streamlined UI is actually reducing the time it takes for physicians to enter post-visit notes.",
+
+"The Finance App is an IMAGINARY company similar to mint.com that allows users to connect their bank accounts from various financial institutions to track their spending, income, and investments. The app has a web and mobile version, and users can set budgets, track expenses, and get financial advice. The app also has a premium subscription for advanced features. They need to understand the differences between web and mobile engagement, as well as the health of various data sharing partnerships they have with the banks and financial institutions. They are particularly worried about 'sync errors' causing churn. They want a report that correlates specific bank connection failures (e.g., 'Chase Bank Sync Fail') with users canceling their premium subscriptions within 7 days.",
+
+"The Crypto App is an IMAGINARY company that allows users to buy, sell, and trade cryptocurrencies. The app has a web and mobile version, and users can set up wallets, track prices, and get market insights. The app also has a premium subscription for advanced features. They need to deeply understand the different customer segments, like traders, investors, and casual users, and how they interact with the app. In particular, they care about what type of cryptocurrency users are most interested in, and how that affects their engagement and retention. They also want to quantify some gaming-styled metrics like average revenue per paying user (ARPPU). They want to identify 'Whales' (users with >$10k trade volume) and analyze their specific paths through the app compared to 'Minnows,' specifically seeing if the 'News Feed' feature drives more trades for high-volume users.",
+
+"The Classroom App is an IMAGINARY app that helps students and teachers manage their classroom activities. It includes features for scheduling classes, tracking assignments, and communicating with students and parents. The app is available on web, iOS, and Android platforms. The marketing team is focused on increasing user engagement and retention through targeted campaigns and personalized content. They are trying to understand which types of landing pages and campaigns are most effective for driving app downloads and user sign-ups. Furthermore, they want to track the 'Homework Submission' funnel to see where students are dropping off—is it at the upload stage or the final submit stage? They also need to segment teacher usage by school district to identify potential enterprise-level upsell opportunities.",
+
+"The Shopping App is an IMAGINARY app that helps users discover and purchase products from various online retailers. It includes features for product recommendations, price comparisons, and user reviews. The app is available on web, iOS, and Android platforms. The design team is interesting in which pages users interact with, spend time on, and how they scroll. They also want to quantify things like customer satisfaction score, and understand products their customers are searching for. Their most important metric is around their checkout flow, which they are trying to optimizing by understanding fall-off points in their funnel. They specifically want to A/B test a 'One-Click Checkout' versus a standard 'Add to Cart' flow and need to see the revenue impact per user (ARPPU) for each variant.",
+
+"The HR Platform is an IMAGINARY applicant tracking system (ATS) used by recruiters and hiring managers to source, interview, and hire candidates. They are essentially a B2B workflow tool. They are currently facing a churn issue with their SMB (Small/Medium Business) clients. They want to understand the 'Time to Hire' metric across their customer base. They hypothesize that clients who use their 'Auto-Scheduler' feature hire candidates faster and retain their subscriptions longer. They need to track the entire candidate pipeline—from 'Resume Review' to 'Offer Letter Sent'—and want to use Group Analytics to see which companies are 'power users' of the integration features (like LinkedIn or Slack integrations) versus companies that only use the basic database features.",
+
+"The CyberSecurity Tool is an IMAGINARY B2B SaaS platform that helps IT teams monitor network traffic for threats. They operate on a freemium model where basic monitoring is free, but automated threat resolution is paid. They have very low-volume but high-value event data. They want to understand the conversion trigger: what specific 'Alert' types lead a free user to upgrade to a paid plan? They want to analyze the path from 'View Alert Details' to 'Click Upgrade,' and segment this by the size of the IT team using the product. They also need to track false positives; if a user manually dismisses an alert as 'Safe,' they want to track how often that happens to improve their algorithm.",
+
+"The Project Manager is an IMAGINARY productivity tool similar to Trello or Asana, organized by boards, lists, and cards. They are trying to move upmarket from individual users to Enterprise Site Licenses. They need to distinguish between 'Creator' behavior (making cards, assigning tasks) and 'Consumer' behavior (just moving cards or checking boxes). They want to identify 'Champion Users' within a specific company domain—users who invite the most colleagues—so their sales team can reach out to those specific individuals for enterprise sales conversations. They also want to track the adoption of their new 'Timeline View' feature to see if it correlates with higher retention rates in large teams.",
+
+"The Logistics Hub is an IMAGINARY fleet management software used by trucking companies to track vehicles, fuel usage, and driver compliance. They have a hardware component (GPS trackers) and a software dashboard. They need to merge hardware events (Engine On, Speeding Alert, Fuel Level) with software events (report generation, route optimization). Their primary goal is to reduce 'Idling Time' for their clients. They want to provide their clients with a dashboard showing which drivers have the best safety scores, so they need to aggregate individual driver behavior into a 'Fleet Score' and track how often fleet managers view this specific report.",
+
+"The DevPlatform is an IMAGINARY developer tool similar to GitHub or GitLab. They allow code hosting, CI/CD pipelines, and issue tracking. They are concerned that their new 'AI Code Assistant' is not being adopted by senior engineers. They want to segment their users by 'Account Age' and 'Commit Volume' to see if the AI features are primarily being used by junior developers (new accounts, lower complexity) or senior developers. They also want to track the 'Pull Request' lifecycle to see if using the AI Assistant reduces the time it takes for a Pull Request to get merged.",
+
+"The RideShare App is an IMAGINARY two-sided marketplace connecting drivers with passengers, similar to Uber or Lyft. They are launching a new service tier called 'Comfort Plus.' They need to balance supply and demand. On the supply side (drivers), they want to know what incentives cause a driver to switch from 'Offline' to 'Online' during surge pricing hours. On the demand side (riders), they want to analyze the price elasticity of the new 'Comfort Plus' tier—specifically, how many users view the price, compare it to the standard tier, and then choose the upgrade. They also need to track the 'Ride Cancelled' event deeply to understand if cancellations are due to long wait times or driver location.",
+
+"The Dating App is an IMAGINARY mobile application focused on 'meaningful connections' rather than hookups, using a swiping mechanic. They monetize through 'Super Likes' and a monthly 'Gold' subscription. They have a problem with user fatigue; users swipe a lot but stop messaging. They want to measure the 'Match-to-Conversation' ratio. Specifically, they want to track the funnel from Match -> First Message Sent -> Reply Received. They want to segment this by gender and age to refine their matching algorithm. They also want to know if users who purchase 'Boosts' (paying to be seen by more people) actually end up with higher quality conversations, or just more empty matches.",
+
+"The Fitness Bike is an IMAGINARY company that sells connected stationary bikes and a monthly subscription for live classes, similar to Peloton. They have a unique challenge of merging physical hardware data with digital app interaction. They want to know the correlation between 'Miles Cycled' and 'Subscription Renewal.' They are trying to identify the 'churn danger zone'—for example, if a user hasn't completed a ride in 14 days, are they 90% likely to cancel? They also want to analyze the popularity of 'Live' classes versus 'On-Demand' classes to optimize their studio filming schedule.",
+
+"The Property App is an IMAGINARY real estate marketplace similar to Zillow or Redfin. They generate revenue by selling leads to real estate agents. They want to qualify these leads better. They want to track 'High Intent' behaviors, such as saving a home, using the mortgage calculator, or sharing a listing via SMS. They want to create a composite score for users based on these events and only pass 'Hot Leads' to agents. They also want to understand the 'Map Search' behavior—do users find homes faster by drawing custom boundaries on the map or by using filter lists?",
+
+"The Music Streamer is an IMAGINARY audio streaming service similar to Spotify. They are betting big on Podcasts this year. They want to understand the crossover behavior between Music listeners and Podcast listeners. Do users who listen to True Crime podcasts listen to specific genres of music? They need to track 'Completion Rate' for podcast episodes to guide their original content investment. They also want to analyze the 'Playlist Creation' flow to see if users who build their own playlists have a higher Lifetime Value (LTV) than users who only listen to algorithmic 'Daily Mix' playlists.",
+
+"The MMO Game is an IMAGINARY Massively Multiplayer Online Role-Playing Game. The studio is transitioning the game to a Free-to-Play model with microtransactions for cosmetics. They are desperate to balance the game economy. They need to track the 'faucet and sink' of their in-game currency (Gold). They want to know exactly which quests generate the most gold and which store items drain the most gold. They also want to analyze the 'New Player Experience' (FTUE) tutorial to see where players are getting stuck and quitting before reaching Level 5. They are specifically looking for 'Rage Quits'—players who fail a mission 3 times and then close the application.",
+
+"The Betting App is an IMAGINARY sports betting platform allowed in regulated states. They have high spikes in traffic during major events like the Super Bowl. They are focused on 'Cross-Selling'—trying to get users who bet on NFL games to also try their Online Casino games (Blackjack/Slots). They want to build a funnel that tracks a user placing a sports bet, winning, and then immediately using those winnings to play a hand of Blackjack. They also need strict tracking on 'Deposit Failures' as that is their biggest leakage point in the revenue funnel.",
+
+"The Meditation App is an IMAGINARY wellness app focusing on sleep stories and guided meditation. They function on a subscription model. They have noticed that users who utilize the 'Sleep Timer' feature retain longer. They want to verify this with data by comparing the retention curves of 'Sleep Timer Users' vs 'Daytime Mediators.' They also want to track the effectiveness of their push notifications sent at 9 PM local time—do these notifications lead to a 'Session Start' event, or are they being disabled by users?",
+
+"The Recipe Hub is an IMAGINARY cooking app and website that allows users to save recipes, generate shopping lists, and order groceries. They earn affiliate revenue from grocery partnerships. They want to understand the 'Cook Mode' feature—a screen that keeps the phone awake while cooking. They want to know if users who use 'Cook Mode' are more likely to click the affiliate 'Buy Ingredients' links compared to users who just browse and screenshot recipes. They also want to segment users by 'Dietary Preference' (Vegan, Keto, Paleo) to serve better ad targeting.",
+
+"The Language Learner is an IMAGINARY education app like Duolingo. They use gamification (streaks, badges) to keep users learning. They want to optimize their 'Heart System' (users lose hearts when they make mistakes). They want to find the 'frustration point'—how many mistakes does a user make in a row before they quit the app for the day? They also want to A/B test the difficulty of their 'End of Unit Boss Battles' to see if making them harder increases the purchase of 'Power-Ups' (monetization) or just causes user churn.",
+
+"The Neobank is an IMAGINARY digital-only bank that offers checking accounts and debit cards to teenagers, managed by their parents. They have two distinct user interfaces: the Parent View and the Teen View. They want to understand the 'Allowance Flow.' They want to track how fast a Teen spends money after a 'Transfer In' event from a parent. They also want to track the adoption of their 'Savings Goals' feature—do teens who set a specific goal (e.g., 'AirPods') save more money than those who don't? They need to be able to cohort these users based on the parent's subscription tier.",
+
+"The InsurTech App is an IMAGINARY car insurance provider that uses telematics (driving data) to set rates. They have an app that users must run while driving. They are struggling with app permissions—users turning off location services. They want to track the funnel of the 'Permissions Request' flow during onboarding to see which explanation text yields the highest opt-in rate. They also want to correlate 'Hard Braking Events' (collected via the app) with actual 'Claims Filed' to validate their risk models.",
+
+"The NFT Marketplace is an IMAGINARY platform for trading digital art on the blockchain. They are currently experiencing a downturn in volume. They want to identify 'Collectors' vs 'Flippers.' They want to define a 'Flipper' as someone who buys and sells an asset within 48 hours. They want to analyze the behavior of Flippers to see which collections they are targeting. They also need to track 'Wallet Connect' failures, as users often try to connect incompatible wallets, leading to a failed session.",
+
+"The EV Charging Network is an IMAGINARY app that helps Electric Vehicle owners find charging stations and pay for charging. They are dealing with 'Range Anxiety.' They want to understand how users plan trips. They want to track the 'Route Planner' usage—specifically, how many users look up a route but then don't start the charge session (indicating they might have chosen a competitor). They also want to analyze 'Charging Curves' —how long do users stay plugged in? Do they unplug at 80% or wait for 100%? This data helps them optimize pricing for idle fees.",
+
+"The Gig-Economy Cleaning App is an IMAGINARY on-demand home cleaning service. They match homeowners with cleaners. They are trying to solve the problem of 'Platform Leakage'—where the cleaner and homeowner cut a side deal and leave the app. They want to track communication patterns in their in-app chat. They are looking for specific keywords or behavior patterns (like exchanging phone numbers) that precede a user account going dormant. They also want to track the 'Re-booking Rate'—if a user rates a cleaner 5 stars, what is the probability they book that specific cleaner again within 30 days?"
+]
