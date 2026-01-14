@@ -6,19 +6,12 @@
   "scripts": {
     "build": "node package-extension.js",
     "test": "jest",
-    "test:e2e": "jest e2e.test.js",
-    "test:e2e-real": "jest tests/e2e",
-    "test:e2e-debug": "DEBUG=true jest tests/e2e.test.js",
-    "test:integration": "jest tests/integration.test.js",
-    "test:integration-debug": "DEBUG=true jest tests/integration.test.js",
-    "test:debug": "DEBUG=true jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:ci": "jest --ci --coverage --watchAll=false"
+    "typecheck": "npx tsc --project ./src/tsconfig.json --noEmit"
   },
   "author": "AK",
   "license": "ISC",
   "devDependencies": {
+    "@types/chrome": "^0.1.33",
     "@types/jest": "^30.0.0",
     "child_process": "^1.0.2",
     "fs-extra": "^11.2.0",
@@ -28,6 +21,7 @@
     "path": "^0.12.7",
     "puppeteer": "^22.6.3",
     "sinon-chrome": "^3.0.1",
+    "typescript": "^5.9.3",
     "util": "^0.12.5",
     "zip-local": "^0.3.5"
   }

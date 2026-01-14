@@ -229,6 +229,20 @@ async function init() {
 		});
 	}
 
+	// Check for stuck AI jobs on worker restart
+	if (STORAGE?.aiJob?.status === 'running') {
+		const elapsed = Date.now() - (STORAGE.aiJob.startTime || 0);
+		if (elapsed > AI_JOB_TIMEOUT) {
+			// Job was running but timed out during worker suspension
+			const projectId = STORAGE.aiJob.params?.project_id || 'unknown';
+			STORAGE.aiJob.status = 'timeout';
+			STORAGE.aiJob.error = `Extension service worker was suspended; check Mixpanel, your job probably finished:\nhttps://mixpanel.com/project/${projectId}`;
+			await setStorage(STORAGE);
+			console.log('mp-tweaks: Marked stuck job as timed out on worker restart');
+		}
+		// If job is still within timeout, it will continue running with the new waitUntil wrapper
+	}
+
 	storageInitialized = true;
 	return STORAGE;
 }
@@ -425,6 +439,22 @@ async function handleRequest(request) {
 			console.log('mp-tweaks: resetting user');
 			await resetStorageData();
 			result = (await init())?.whoami;
+			break;
+
+		case 'collapse-section':
+			// Update section collapsed state
+			const sectionName = request.data.section;
+			const collapsed = request.data.collapsed;
+			if (sectionName && STORAGE.sectionStates) {
+				if (!STORAGE.sectionStates[sectionName]) {
+					STORAGE.sectionStates[sectionName] = {};
+				}
+				STORAGE.sectionStates[sectionName].expanded = !collapsed;
+				await setStorage(STORAGE);
+				result = { success: true };
+			} else {
+				result = { success: false, error: 'Invalid section or storage not initialized' };
+			}
 			break;
 
 		case 'save-response':
@@ -629,7 +659,7 @@ async function handleRequest(request) {
 			break;
 
 		default:
-			console.error("mp-tweaks: unknown action", request);
+			console.error(`mp-tweaks: unknown action ${request?.action || 'no action'}\n\n${JSON.stringify(request)}`);
 			track('unknown-action', { request: request });
 			result = "Unknown action";
 	}
@@ -651,6 +681,27 @@ async function messageExtension(action, data) {
 }
 
 const AI_JOB_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+
+/**
+ * Keep service worker alive during long-running operations
+ * Based on Chrome's recommended pattern
+ * https://developer.chrome.com/docs/extensions/develop/migrate/to-service-workers#keep-sw-alive
+ */
+async function waitUntil(promise) {
+	// Call chrome.runtime.getPlatformInfo every 25 seconds to keep worker alive
+	const keepAlive = setInterval(() => {
+		chrome.runtime.getPlatformInfo(() => {
+			console.log('mp-tweaks: AI job keep-alive ping');
+		});
+	}, 25 * 1000);
+
+	try {
+		return await promise;
+	} finally {
+		clearInterval(keepAlive);
+		console.log('mp-tweaks: AI job keep-alive stopped');
+	}
+}
 
 async function runAIMacro(macroType, params) {
 	const endpoints = {
@@ -725,18 +776,20 @@ async function runAIMacro(macroType, params) {
 			}, AI_JOB_TIMEOUT);
 		});
 
-		// Race between fetch and timeout
-		const response = await Promise.race([
-			fetch(url, {
-				method: 'POST',
-				headers: {
-					'Authorization': authHeader,
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify(apiParams)
-			}),
-			timeoutPromise
-		]);
+		// Use waitUntil to keep service worker alive during fetch
+		const response = await waitUntil(
+			Promise.race([
+				fetch(url, {
+					method: 'POST',
+					headers: {
+						'Authorization': authHeader,
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify(apiParams)
+				}),
+				timeoutPromise
+			])
+		);
 
 		if (!response.ok) {
 			const errorText = await response.text();
@@ -1666,7 +1719,7 @@ async function getUser() {
 		const oauthToken = JSON.parse(response)?.token;
 		if (oauthToken) {
 			user.oauthToken = oauthToken;
-			const info = await fetch(`https://mixpanel.com/api/app/me/?include_workspace_users=false`, { headers: { Authorization: `Bearer ${oauthToken}` } });
+			const info = await fetch(`https://mixpanel.com/api/app/me/?include_workspace_users=false&project_id=0`, { headers: { Authorization: `Bearer ${oauthToken}` } });
 			const data = await info.json();
 			if (data?.results) {
 				const { user_name = "", user_email = "" } = data.results;
@@ -1675,9 +1728,14 @@ async function getUser() {
 				if (!user_email.includes('@mixpanel.com')) throw new Error(`${user_email} not a mixpanel employee`);
 
 				// Collect ALL orgs where the user is an owner
-				const ignoreOrgs = [1673847, 1866253, 328203]; // shared demo orgs
+				const ignoreOrgs = [
+					1, // Flagship  https://mixpanel.com/settings/org/1
+					// 1673847,  // 'SE Demo' (internal) https://mixpanel.com/settings/org/1673847
+					1866253,  // 'Demo Project' (public) https://mixpanel.com/settings/org/1866253
+					// 328203 // 'Mixpanel Demo' (internal) https://mixpanel.com/settings/org/328203
+				]; 
 				const ownedOrgs = Object.values(data.results.organizations)
-					.filter(o => o.role === 'owner')
+					.filter(o => o.role === "owner" || o.role === "admin")
 					.filter(o => !ignoreOrgs.includes(o.id))
 					.map(o => ({ id: o.id?.toString(), name: o.name }));
 

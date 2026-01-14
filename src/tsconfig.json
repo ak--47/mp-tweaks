@@ -11,15 +11,17 @@
 	  "noImplicitThis": false,
 	  "skipLibCheck": true,
 	  "forceConsistentCasingInFileNames": true,
-	  "typeRoots": ["./"], // Include your current project folder
-	  "types": [] // Specify type declaration files as needed
+	  "typeRoots": ["./", "../node_modules/@types"], // Include project folder and @types
+	  "types": ["chrome", "jest"] // Include Chrome API and Jest types
 	},
 	"include": [
 	  "globals.d.ts", // Include your global type definitions
 	  "./**/*.js" // Include all JavaScript files for IntelliSense
 	],
 	"exclude": [
-	  "node_modules" // Exclude the node_modules directory
+	  "node_modules", // Exclude the node_modules directory
+	  "lib/**", // Exclude third-party libraries
+	  "tweaks/**" // Exclude browser-injected scripts
 	]
   }
   

@@ -30,6 +30,38 @@
 					<a href="https://chromewebstore.google.com/detail/mp-tweaks/inohmabgpakdlckangklebmpakgimipd" target="_blank" class="header-link" title="Chrome Web Store">share</a>
 					<a href="#" id="refreshCache" class="header-link" title="Refresh cache and reload data">refresh</a>
 				</div>
+				<!-- Global Auth Component -->
+				<div id="headerAuth" class="header-auth hidden">
+					<div class="auth-info">
+						<div class="auth-row">
+							<span class="auth-label">auth:</span>
+							<span id="headerAuthEmail" class="auth-email">--</span>
+						</div>
+						<div class="auth-row">
+							<span class="org-label">org:</span>
+							<select id="headerOrgDropdown" class="org-dropdown">
+								<!-- Options populated dynamically -->
+							</select>
+						</div>
+					</div>
+					<button id="headerReauth" class="button tiny auth-button">Reauth</button>
+					<svg id="headerReauthSpinner" class="hidden spinner-inline"
+						width="12px" height="12px"
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 100 100"
+						preserveAspectRatio="xMidYMid"
+						style="background: none;">
+						<circle cx="50" cy="50" fill="none" stroke="#DF7800" stroke-width="8" r="30"
+							stroke-dasharray="141.37166941154067 49.12388980384689">
+							<animateTransform attributeName="transform" type="rotate" calcMode="linear"
+								values="0 50 50;360 50 50" keyTimes="0;1" dur="1.5s" begin="0s"
+								repeatCount="indefinite"></animateTransform>
+						</circle>
+					</svg>
+					<button id="headerToggleAll" class="toggle-all-button" title="Expand/Collapse All">
+						<span class="toggle-arrow">↓</span>
+					</button>
+				</div>
 			</h1>
 		</div>
 
@@ -146,26 +178,22 @@
 						<br/><a href="https://powertools.mixpanel.org/" target="_blank" class="powered-by">powered by powertools</a>
 					</p>
 
-					<!-- Project Info Banner -->
+					<!-- Project Info Banner with Reauth -->
 					<div id="aiMagicStatus" class="ai-status">
-						<span id="aiProjectLabel" class="statusText">Project: <b>not detected</b></span>
-						<span id="aiRegionLabel" class="statusText"> | Region: <b>US</b></span>
-						<span id="aiAuthUser" class="statusText"> | Auth: <b id="aiAuthEmail">--</b></span>
-					</div>
-
-					<!-- AI Org Controls -->
-					<div class="ai-auth-row">
-						<div id="aiOrgSelector" class="ai-org-selector hidden">
-							<label>Org:</label>
-							<select id="aiOrgDropdown">
-								<!-- Options populated dynamically -->
-							</select>
+						<div class="ai-status-info">
+							<div class="ai-status-row">
+								<span id="aiProjectLabel" class="statusText">Project: <b>not detected</b></span>
+								<span id="aiRegionLabel" class="statusText">&nbsp;&nbsp;| Region: <b>US</b></span>
+							</div>
+							<div class="ai-status-row">
+								<span id="aiAuthUser" class="statusText">auth: <b id="aiAuthEmail">--</b></span>
+							</div>
 						</div>
-						<button class="button small purple" id="aiReauth">Reauth</button>
+						<button class="button tiny ai-reauth-button" id="aiReauth">Reauth</button>
 						<svg id="aiReauthSpinner"
-							class="hidden"
-							width="18px"
-							height="18px"
+							class="hidden spinner-inline"
+							width="12px"
+							height="12px"
 							xmlns="http://www.w3.org/2000/svg"
 							viewBox="0 0 100 100"
 							preserveAspectRatio="xMidYMid"
@@ -174,7 +202,7 @@
 								cy="50"
 								fill="none"
 								stroke="#DF7800"
-								stroke-width="6"
+								stroke-width="8"
 								r="30"
 								stroke-dasharray="141.37166941154067 49.12388980384689"
 								transform="rotate(72.4232 50 50)">
@@ -183,7 +211,7 @@
 									calcMode="linear"
 									values="0 50 50;360 50 50"
 									keyTimes="0;1"
-									dur="1.9s"
+									dur="1.5s"
 									begin="0s"
 									repeatCount="indefinite"></animateTransform>
 							</circle>
@@ -195,12 +223,12 @@
 						<label>Macro:</label>
 						<select id="aiMacroSelect">
 							<option value="dataset">📊 AI Dataset Generator</option>
+							<option value="e2e">🚀 AI End-to-End</option>
 							<option value="schema">✨ AI Schema Enrichment</option>
 							<option value="dashboard">📈 AI Dashboard Generator</option>
 							<option value="tags">🏷️ AI Event Tagging</option>
 							<option value="rename-reports">📝 AI Rename Reports</option>
 							<option value="rename-entities">🔖 AI Rename Entities</option>
-							<option value="e2e">🚀 AI End-to-End</option>
 							<option value="replay">🎬 AI Replay Generator</option>
 						</select>
 					</div>
@@ -271,21 +299,20 @@
 					<span class="collapse-toggle">↓</span>
 				</h2>
 				<div class="section-content">
-					<p class="small">make a <b>new project</b> in <span class="highlight">your personal org</span></p>
+					<p class="small">make a <b>new project</b> in <span class="highlight">your active org</span></p>
 
-				<!-- Org Selector -->
-				<div id="orgSelector" class="org-selector hidden">
-					<label>Active Org:</label>
-					<select id="orgDropdown">
-						<!-- Options populated dynamically -->
-					</select>
+				<!-- Display current auth/org status -->
+				<div class="project-status">
+					<span>Active Org: <b id="projectOrgName">--</b></span>
 				</div>
 
-				<p id="authUserDisplay" class="hidden small">Authed as: <b id="authUserEmail">unknown</b></p>
+				<p id="authUserDisplay" class="project-auth small">
+					auth: <b id="projectAuthEmail">--</b>
+				</p>
 
 				<div class="button-input-group">
 					<button class="button" id="makeProject">Make Project</button>
-					<button class="button" id="resetUser">Reauth</button>
+					<button class="button" id="projectReauth">Reauth</button>
 					<svg id="makeProjectSpinner"
 						class="hidden"
 						width="24px"
