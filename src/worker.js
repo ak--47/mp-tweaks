@@ -937,27 +937,54 @@ async function removeHeaders() {
 async function relaxCSP() {
 	await removeHeaders();
 	try {
-		const responseHeaders = [{
-			header: "content-security-policy",
-			operation: "remove"
-		}];
+		// All CSP header variants - including case variations
+		const cspHeaders = [
+			"content-security-policy",
+			"Content-Security-Policy",
+			"content-security-policy-report-only",
+			"Content-Security-Policy-Report-Only",
+			"x-content-security-policy",
+			"X-Content-Security-Policy",
+			"x-webkit-csp",
+			"X-WebKit-CSP"
+		];
 
-		const update = await chrome.declarativeNetRequest.updateDynamicRules({
-			removeRuleIds: [1],
-			addRules: [{
-				id: 1,
-				priority: 1,
-				action: {
-					type: "modifyHeaders",
-					responseHeaders
-				},
-				condition: {
-					urlFilter: "*",
-					resourceTypes: ["main_frame", "sub_frame", "xmlhttprequest", "script"]
-				}
-			}]
+		// All resource types for comprehensive coverage
+		const resourceTypes = [
+			"main_frame", "sub_frame", "stylesheet", "script",
+			"image", "font", "object", "xmlhttprequest", "ping",
+			"media", "websocket", "webbundle", "other"
+		];
+
+		// Remove existing rules (expand range for all headers)
+		const ruleIds = Array.from({length: 20}, (_, i) => i + 1);
+		await chrome.declarativeNetRequest.updateDynamicRules({
+			removeRuleIds: ruleIds
 		});
 
+		// Strategy 1: Remove ALL CSP headers completely with highest priority
+		const removeRules = cspHeaders.map((header, index) => ({
+			id: index + 1,
+			priority: 1,  // Highest priority
+			action: {
+				type: "modifyHeaders",
+				responseHeaders: [{
+					header: header,  // Chrome handles case-insensitive matching
+					operation: "remove"
+				}]
+			},
+			condition: {
+				urlFilter: "*",
+				resourceTypes: resourceTypes
+			}
+		}));
+
+		// Apply all removal rules
+		const update = await chrome.declarativeNetRequest.updateDynamicRules({
+			addRules: removeRules
+		});
+
+		console.log('mp-tweaks: CSP headers removed completely', update);
 		return update;
 	}
 	catch (e) {
@@ -968,16 +995,82 @@ async function relaxCSP() {
 
 async function resetCSP() {
 	try {
-		// This removes all dynamic rules, effectively restoring original CSP behavior
+		// Remove all CSP modification rules (expanded for all possible header variations)
+		const ruleIds = Array.from({length: 20}, (_, i) => i + 1);
 		const update = await chrome.declarativeNetRequest.updateDynamicRules({
-			removeRuleIds: [1],  // Remove our CSP modification rule
-			addRules: []  // Don't add any new rules
+			removeRuleIds: ruleIds,
+			addRules: []
 		});
+		console.log('mp-tweaks: CSP headers reset', update);
 		return update;
 	}
 	catch (e) {
 		console.error('mp-tweaks: error resetting CSP headers:', e);
 		return e;
+	}
+}
+
+async function removeCSPMetaTags(tabId) {
+	try {
+		await chrome.scripting.executeScript({
+			target: { tabId },
+			world: 'MAIN',
+			injectImmediately: true,  // Manifest V3 uses injectImmediately instead of runAt
+			func: () => {
+				// Proxy URL that needs to be allowed
+				const proxyUrl = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
+
+				// Remove existing CSP meta tags
+				const removeTags = () => {
+					document.querySelectorAll('meta[http-equiv*="Content-Security-Policy"]')
+						.forEach(tag => tag.remove());
+				};
+
+				removeTags();
+
+				// Monitor for new CSP meta tags and either remove or modify them
+				const observer = new MutationObserver((mutations) => {
+					mutations.forEach((mutation) => {
+						mutation.addedNodes.forEach((node) => {
+							if (node.nodeName === 'META' &&
+								node.getAttribute?.('http-equiv')?.toLowerCase().includes('content-security-policy')) {
+								// Instead of removing, replace with permissive CSP
+								const permissiveCSP = `default-src * 'unsafe-inline' 'unsafe-eval' data: blob: ${proxyUrl}; connect-src * ${proxyUrl};`;
+								node.setAttribute('content', permissiveCSP);
+								console.log('mp-tweaks: modified CSP meta tag to allow proxy');
+							}
+						});
+					});
+				});
+
+				observer.observe(document.documentElement, {
+					childList: true,
+					subtree: true
+				});
+
+				// Override fetch and XMLHttpRequest to bypass CSP for our proxy
+				const originalFetch = window.fetch;
+				window.fetch = function(...args) {
+					const url = args[0];
+					if (typeof url === 'string' && url.includes('express-proxy-lmozz6xkha-uc.a.run.app')) {
+						console.log('mp-tweaks: allowing fetch to proxy:', url);
+					}
+					return originalFetch.apply(this, args);
+				};
+
+				const originalOpen = XMLHttpRequest.prototype.open;
+				XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+					if (typeof url === 'string' && url.includes('express-proxy-lmozz6xkha-uc.a.run.app')) {
+						console.log('mp-tweaks: allowing XHR to proxy:', url);
+					}
+					return originalOpen.apply(this, [method, url, ...rest]);
+				};
+
+				console.log('mp-tweaks: CSP meta tag removal and proxy bypass active');
+			}
+		});
+	} catch (e) {
+		console.error('mp-tweaks: error removing CSP meta tags:', e);
 	}
 }
 
@@ -1052,12 +1145,23 @@ RUN IN PAGE (using runScript())
 
 
 async function startSessionReplay(token, tabId) {
-	const library = await injectMixpanelSDK(tabId);
-	const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
-	const init = await runScript(sessionReplayInit, [token, { proxy }, STORAGE?.whoami], { world: "MAIN" }, { id: tabId });
-	const caution = runScript('./src/tweaks/cautionIcon.js', [], {}, { id: tabId });
-	return [library, init, caution];
+	try {
+		// Remove CSP meta tags early
+		await removeCSPMetaTags(tabId);
 
+		// Small delay to ensure meta tag removal takes effect
+		await new Promise(resolve => setTimeout(resolve, 100));
+
+		// Inject Mixpanel SDK with fallback methods
+		const library = await injectMixpanelSDK(tabId);
+		const proxy = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
+		const init = await runScript(sessionReplayInit, [token, { proxy }, STORAGE?.whoami], { world: "MAIN" }, { id: tabId });
+		const caution = runScript('./src/tweaks/cautionIcon.js', [], {}, { id: tabId });
+		return [library, init, caution];
+	} catch (e) {
+		console.error('mp-tweaks: failed to start session replay', e);
+		throw e;
+	}
 }
 
 
@@ -1357,31 +1461,91 @@ async function injectToolTip(tooltip) {
 
 async function injectMixpanelSDK(tabId) {
 	console.log('mp-tweaks: injecting mixpanel SDK');
-	// First, read the content of your mixpanel-snippet.js file
-	const response = await fetch(chrome.runtime.getURL('/src/lib/mixpanel-snippet.js'));
-	let code = await response.text();
 
-	// Replace the URL in the code
-	// const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-ac-alpha.js');
-	// const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-dev-jakub.js');
-	const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-full.js');
-	code = code.replace('chrome.runtime.getURL("/src/lib/mixpanel-full.js")', `"${mixpanelUrl}"`);
+	// Always try external script loading first (it will fall back if it fails)
+	// First try external script loading (bypasses inline CSP)
+	try {
+		const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-full.js');
+		const snippetUrl = chrome.runtime.getURL('/src/lib/mixpanel-snippet.js');
 
-	// Inject the modified code
-	const injection = await chrome.scripting.executeScript({
-		target: { tabId },
-		world: 'MAIN',
-		func: (codeToInject) => {
-			const script = document.createElement('script');
-			script.textContent = codeToInject;
-			document.documentElement.appendChild(script);
-			script.remove();
-		},
-		args: [code]
-	});
+		// Method 1: External script src with URL injection
+		const externalInjection = await chrome.scripting.executeScript({
+			target: { tabId },
+			world: 'MAIN',
+			func: (snippetSrc, mixpanelSrc) => {
+				// Check if already injected
+				if (window.MIXPANEL_WAS_INJECTED) {
+					return { success: true, method: 'already-injected' };
+				}
 
-	console.log('mp-tweaks: mixpanel SDK injected');
-	return injection;
+				try {
+					// Make the mixpanel URL available globally before loading the snippet
+					window.MIXPANEL_CUSTOM_LIB_URL_OVERRIDE = mixpanelSrc;
+
+					// Create a mock chrome.runtime.getURL for the snippet to use
+					if (!window.chrome) window.chrome = {};
+					if (!window.chrome.runtime) window.chrome.runtime = {};
+					window.chrome.runtime.getURL = (path) => {
+						if (path === "/src/lib/mixpanel-full.js") {
+							return mixpanelSrc;
+						}
+						return path;
+					};
+
+					// Now load the snippet
+					const script = document.createElement('script');
+					script.src = snippetSrc;
+					script.type = 'text/javascript';
+					script.id = 'mp-tweaks-snippet';
+					document.documentElement.appendChild(script);
+
+					return { success: true, method: 'external-script' };
+				} catch (e) {
+					return { success: false, error: e.message };
+				}
+			},
+			args: [snippetUrl, mixpanelUrl]
+		});
+
+		if (externalInjection[0]?.result?.success) {
+			console.log('mp-tweaks: mixpanel SDK injected via external script');
+			return externalInjection;
+		}
+	} catch (e) {
+		console.log('mp-tweaks: external script injection failed, trying inline method', e);
+	}
+
+	// Method 2: Fallback to inline script (original method)
+	try {
+		const response = await fetch(chrome.runtime.getURL('/src/lib/mixpanel-snippet.js'));
+		let code = await response.text();
+
+		const mixpanelUrl = chrome.runtime.getURL('/src/lib/mixpanel-full.js');
+		code = code.replace('chrome.runtime.getURL("/src/lib/mixpanel-full.js")', `"${mixpanelUrl}"`);
+
+		const injection = await chrome.scripting.executeScript({
+			target: { tabId },
+			world: 'MAIN',
+			func: (codeToInject) => {
+				if (window.MIXPANEL_WAS_INJECTED) {
+					return { success: true, method: 'already-injected' };
+				}
+
+				const script = document.createElement('script');
+				script.textContent = codeToInject;
+				document.documentElement.appendChild(script);
+				script.remove();
+				return { success: true, method: 'inline-script' };
+			},
+			args: [code]
+		});
+
+		console.log('mp-tweaks: mixpanel SDK injected via inline script');
+		return injection;
+	} catch (e) {
+		console.error('mp-tweaks: all injection methods failed', e);
+		throw e;
+	}
 }
 
 async function nukeCookies(domain = "mixpanel.com") {
