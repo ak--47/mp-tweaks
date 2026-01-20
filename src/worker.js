@@ -573,6 +573,7 @@ async function handleRequest(request) {
 			console.log('mp-tweaks: session replay stopped');
 			break;
 
+
 		//update headers and call updateHeaders
 		case 'mod-headers':
 			console.log('mp-tweaks: updating headers');
@@ -937,54 +938,108 @@ async function removeHeaders() {
 async function relaxCSP() {
 	await removeHeaders();
 	try {
-		// All CSP header variants - including case variations
-		const cspHeaders = [
-			"content-security-policy",
-			"Content-Security-Policy",
-			"content-security-policy-report-only",
-			"Content-Security-Policy-Report-Only",
-			"x-content-security-policy",
-			"X-Content-Security-Policy",
-			"x-webkit-csp",
-			"X-WebKit-CSP"
-		];
+		const proxyUrl = 'https://express-proxy-lmozz6xkha-uc.a.run.app';
 
-		// All resource types for comprehensive coverage
-		const resourceTypes = [
-			"main_frame", "sub_frame", "stylesheet", "script",
-			"image", "font", "object", "xmlhttprequest", "ping",
-			"media", "websocket", "webbundle", "other"
-		];
+		// Ultra-permissive CSP that explicitly allows everything
+		const ultraPermissiveCSP = [
+			"default-src * data: blob: filesystem: about: ws: wss: 'unsafe-inline' 'unsafe-eval' 'unsafe-hashes' *",
+			`script-src * data: blob: 'unsafe-inline' 'unsafe-eval' 'unsafe-hashes' * ${proxyUrl}`,
+			`connect-src * data: blob: 'unsafe-inline' * ${proxyUrl}`,
+			"img-src * data: blob: 'unsafe-inline' *",
+			"frame-src * data: blob: *",
+			"style-src * data: blob: 'unsafe-inline' *",
+			"font-src * data: blob: *",
+			"worker-src * data: blob: *",
+			"child-src * data: blob: *"
+		].join('; ');
 
-		// Remove existing rules (expand range for all headers)
-		const ruleIds = Array.from({length: 20}, (_, i) => i + 1);
+		// Remove ALL existing rules first
+		const existingRuleIds = Array.from({length: 100}, (_, i) => i + 1);
 		await chrome.declarativeNetRequest.updateDynamicRules({
-			removeRuleIds: ruleIds
+			removeRuleIds: existingRuleIds
 		});
 
-		// Strategy 1: Remove ALL CSP headers completely with highest priority
-		const removeRules = cspHeaders.map((header, index) => ({
-			id: index + 1,
-			priority: 1,  // Highest priority
-			action: {
-				type: "modifyHeaders",
-				responseHeaders: [{
-					header: header,  // Chrome handles case-insensitive matching
-					operation: "remove"
-				}]
+		// Create multiple rules with different strategies
+		const rules = [
+			// Rule 1: Remove CSP from main documents
+			{
+				id: 1,
+				priority: 1,
+				action: {
+					type: "modifyHeaders",
+					responseHeaders: [
+						{ header: "content-security-policy", operation: "remove" },
+						{ header: "content-security-policy-report-only", operation: "remove" },
+						{ header: "x-content-security-policy", operation: "remove" },
+						{ header: "x-webkit-csp", operation: "remove" }
+					]
+				},
+				condition: {
+					urlFilter: "*",
+					resourceTypes: ["main_frame", "sub_frame"]
+				}
 			},
-			condition: {
-				urlFilter: "*",
-				resourceTypes: resourceTypes
+			// Rule 2: Replace CSP for XHR/fetch requests with permissive version
+			{
+				id: 2,
+				priority: 1,
+				action: {
+					type: "modifyHeaders",
+					responseHeaders: [
+						{ header: "content-security-policy", operation: "set", value: ultraPermissiveCSP },
+						{ header: "content-security-policy-report-only", operation: "remove" }
+					]
+				},
+				condition: {
+					urlFilter: "*",
+					resourceTypes: ["xmlhttprequest", "ping", "websocket", "other"]
+				}
+			},
+			// Rule 3: Remove CSP for scripts and stylesheets
+			{
+				id: 3,
+				priority: 1,
+				action: {
+					type: "modifyHeaders",
+					responseHeaders: [
+						{ header: "content-security-policy", operation: "remove" },
+						{ header: "content-security-policy-report-only", operation: "remove" }
+					]
+				},
+				condition: {
+					urlFilter: "*",
+					resourceTypes: ["script", "stylesheet", "font", "image", "media", "object", "webbundle"]
+				}
+			},
+			// Rule 4: DON'T remove origin - proxy needs it to reflect CORS headers!
+			{
+				id: 4,
+				priority: 1,
+				action: {
+					type: "modifyHeaders",
+					requestHeaders: [
+						// DO NOT remove origin - the proxy needs it to set Access-Control-Allow-Origin!
+						// { header: "origin", operation: "remove" },  // COMMENTED OUT - proxy needs this!
+						// Keep referer for tracking
+						// Only remove sec-fetch headers that might cause issues
+						{ header: "sec-fetch-site", operation: "remove" },
+						{ header: "sec-fetch-mode", operation: "remove" },
+						{ header: "sec-fetch-dest", operation: "remove" }
+					]
+				},
+				condition: {
+					urlFilter: "*express-proxy-lmozz6xkha-uc.a.run.app*",
+					resourceTypes: ["xmlhttprequest", "ping", "other"]
+				}
 			}
-		}));
+		];
 
-		// Apply all removal rules
+		// Apply all rules
 		const update = await chrome.declarativeNetRequest.updateDynamicRules({
-			addRules: removeRules
+			addRules: rules
 		});
 
-		console.log('mp-tweaks: CSP headers removed completely', update);
+		console.log('mp-tweaks: Advanced CSP bypass rules applied', update);
 		return update;
 	}
 	catch (e) {
@@ -995,8 +1050,8 @@ async function relaxCSP() {
 
 async function resetCSP() {
 	try {
-		// Remove all CSP modification rules (expanded for all possible header variations)
-		const ruleIds = Array.from({length: 20}, (_, i) => i + 1);
+		// Remove all CSP modification rules (expanded for all possible rules)
+		const ruleIds = Array.from({length: 100}, (_, i) => i + 1);
 		const update = await chrome.declarativeNetRequest.updateDynamicRules({
 			removeRuleIds: ruleIds,
 			addRules: []
@@ -1048,23 +1103,6 @@ async function removeCSPMetaTags(tabId) {
 					subtree: true
 				});
 
-				// Override fetch and XMLHttpRequest to bypass CSP for our proxy
-				const originalFetch = window.fetch;
-				window.fetch = function(...args) {
-					const url = args[0];
-					if (typeof url === 'string' && url.includes('express-proxy-lmozz6xkha-uc.a.run.app')) {
-						console.log('mp-tweaks: allowing fetch to proxy:', url);
-					}
-					return originalFetch.apply(this, args);
-				};
-
-				const originalOpen = XMLHttpRequest.prototype.open;
-				XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-					if (typeof url === 'string' && url.includes('express-proxy-lmozz6xkha-uc.a.run.app')) {
-						console.log('mp-tweaks: allowing XHR to proxy:', url);
-					}
-					return originalOpen.apply(this, [method, url, ...rest]);
-				};
 
 				console.log('mp-tweaks: CSP meta tag removal and proxy bypass active');
 			}
@@ -1281,7 +1319,7 @@ function sessionReplayInit(token, opts = {}, user) {
 
 				},
 				debug: true,
-				api_transport: 'XHR',
+				api_transport: 'XHR',  // Back to XHR - CORS should work now that we keep origin header
 				persistence: "localStorage",
 
 
