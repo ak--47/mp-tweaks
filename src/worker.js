@@ -711,6 +711,7 @@ async function runAIMacro(macroType, params) {
 		'dataset': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-dataset',
 		'schema': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-schema',
 		'dashboard': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-dash-gen',
+		'behaviors-metrics': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-behaviors-metrics',
 		'tags': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-tags',
 		'rename-reports': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-rename-reports',
 		'rename-entities': 'https://mixpanel-power-tools-api-lmozz6xkha-uc.a.run.app/ai-rename-entities'
