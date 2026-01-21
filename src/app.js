@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.53`;
+const APP_VERSION = `2.54`;
 // const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 // const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 // const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
@@ -223,11 +223,20 @@ function validateAIMacroFields(macroType) {
 	const config = AI_MACRO_CONFIGS[macroType];
 	if (!config) return true; // Unknown macro, let it pass
 
-	// Check required fields for dataset and e2e
+	// Check required fields for dataset and e2e (prompt field)
 	if (macroType === 'dataset' || macroType === 'e2e') {
 		const promptField = document.querySelector('#ai-prompt');
 		// @ts-ignore
 		if (!promptField || !promptField.value?.trim()) {
+			return false;
+		}
+	}
+
+	// Check required fields for behaviors-metrics (user_prompt field)
+	if (macroType === 'behaviors-metrics') {
+		const userPromptField = document.querySelector('#ai-user_prompt');
+		// @ts-ignore
+		if (!userPromptField || !userPromptField.value?.trim()) {
 			return false;
 		}
 	}
@@ -525,6 +534,14 @@ const AI_MACRO_CONFIGS = {
 			{ id: 'num_dashboards', type: 'number', label: 'Number of Dashboards', default: 3, min: 1, max: 10 }
 		]
 	},
+	'behaviors-metrics': {
+		title: '🎯 AI Behaviors & Metrics',
+		description: 'Generate behaviors, metrics, and formulas based on your project schema. Behaviors group events, metrics measure KPIs, and formulas calculate ratios.',
+		fields: [
+			{ id: 'user_prompt', type: 'textarea', label: 'Business Context', placeholder: 'Describe your business and key analytics goals. E.g., "E-commerce platform focusing on conversion optimization and customer retention"', showDice: true },
+			{ id: 'count', type: 'number', label: 'Number of Entities', default: 6, min: 1, max: 20 }
+		]
+	},
 	'tags': {
 		title: 'AI Event Tagging',
 		description: 'Generate tags that group similar events by feature, function, or intended use.',
@@ -579,7 +596,7 @@ function renderAIMacroPanel(macroType) {
 	// Hide product context for macros that have their own prompt field
 	const contextSection = APP.DOM.aiProductContext?.closest('.ai-context-section');
 	if (contextSection) {
-		contextSection.classList.toggle('hidden', macroType === 'dataset' || macroType === 'e2e' || macroType === 'dashboard');
+		contextSection.classList.toggle('hidden', macroType === 'dataset' || macroType === 'e2e' || macroType === 'dashboard' || macroType === 'behaviors-metrics');
 	}
 
 	// Add event listeners to save field values on change (debounced)
@@ -611,8 +628,8 @@ function renderAIMacroPanel(macroType) {
 			const randomIndex = Math.floor(Math.random() * PROMPT_EXAMPLES.length);
 			const randomPrompt = PROMPT_EXAMPLES[randomIndex];
 
-			// Set the prompt field value
-			const promptField = document.getElementById('ai-prompt');
+			// Set the prompt field value (could be 'prompt' or 'user_prompt')
+			const promptField = document.getElementById('ai-prompt') || document.getElementById('ai-user_prompt');
 			if (promptField && promptField instanceof HTMLTextAreaElement) {
 				promptField.value = randomPrompt;
 
@@ -650,8 +667,8 @@ function renderAIField(field) {
 				<input type="text" id="ai-${field.id}" placeholder="${field.placeholder || ''}">
 			</div>`;
 		case 'textarea':
-			// Only add dice for dataset and e2e macros' prompt fields
-			const hasDice = field.id === 'prompt' && field.showDice;
+			// Only add dice for fields with showDice=true (prompt or user_prompt fields)
+			const hasDice = field.showDice;
 			return `<div class="field-row field-row-textarea">
 				<label>
 					${field.label}
