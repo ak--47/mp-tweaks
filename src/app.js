@@ -223,20 +223,11 @@ function validateAIMacroFields(macroType) {
 	const config = AI_MACRO_CONFIGS[macroType];
 	if (!config) return true; // Unknown macro, let it pass
 
-	// Check required fields for dataset and e2e (prompt field)
-	if (macroType === 'dataset' || macroType === 'e2e') {
+	// Check required prompt field for macros that require it
+	if (macroType === 'dataset' || macroType === 'e2e' || macroType === 'behaviors-metrics') {
 		const promptField = document.querySelector('#ai-prompt');
 		// @ts-ignore
 		if (!promptField || !promptField.value?.trim()) {
-			return false;
-		}
-	}
-
-	// Check required fields for behaviors-metrics (user_prompt field)
-	if (macroType === 'behaviors-metrics') {
-		const userPromptField = document.querySelector('#ai-user_prompt');
-		// @ts-ignore
-		if (!userPromptField || !userPromptField.value?.trim()) {
 			return false;
 		}
 	}
@@ -515,6 +506,16 @@ const AI_MACRO_CONFIGS = {
 		],
 		promo: 'Want more control? Try <a href="https://dm3.mixpanel.org/" target="_blank">dm3</a> or <a href="https://dm4-lmozz6xkha-uc.a.run.app/" target="_blank">dm4</a>'
 	},
+	'extend-dataset': {
+		title: 'AI Extend Dataset',
+		description: 'Extend or refresh synthetic data, or clone a project\'s schema into realistic fake data. Use <span class="highlight-white">Target Project ID</span> to send generated data to a different project.',
+		fields: [
+			{ id: 'prompt', type: 'textarea', label: 'Schema Changes', placeholder: 'Describe changes: new events to add, properties to remove, trends to engineer. Leave empty to faithfully copy the source schema.' },
+			{ id: 'target_project_id', type: 'text', label: 'Target Project ID (optional)', placeholder: 'Leave empty to write to current project' },
+			{ id: 'num_users', type: 'number', label: 'Number of Users', min: 10, max: 10000 },
+			{ id: 'num_days', type: 'number', label: 'Days of Data', min: 1, max: 365 }
+		]
+	},
 	'schema': {
 		title: 'AI Schema Enrichment',
 		description: 'Generate display names, descriptions, and example values for events and properties in Lexicon.',
@@ -522,8 +523,24 @@ const AI_MACRO_CONFIGS = {
 			{ id: 'target', type: 'select', label: 'Target Entities', options: ['all', 'events', 'properties', 'users'] },
 			{ id: 'casing', type: 'select', label: 'Casing Style', options: ['title', 'lower'] },
 			{ id: 'skip_existing', type: 'checkbox', label: 'Skip entities with existing values', default: true },
-			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' },
-			{ id: 'auto_hide', type: 'checkbox', label: 'Auto-hide unused events/properties', default: true }
+			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' }
+		]
+	},
+	'merge': {
+		title: 'AI Merge Duplicates',
+		description: 'Identify and merge duplicate events and properties that represent the same concept with different naming conventions.',
+		fields: [
+			{ id: 'target', type: 'select', label: 'Target Entities', options: ['all', 'events', 'properties'] },
+			{ id: 'dry_run', type: 'checkbox', label: 'Preview only (dry run)' },
+			{ id: 'remerge', type: 'checkbox', label: 'Include already-merged entities' }
+		]
+	},
+	'show-hide': {
+		title: 'AI Show/Hide',
+		description: 'Use AI to determine which events, properties, and user properties should be visible or hidden based on their relevance and quality.',
+		fields: [
+			{ id: 'target', type: 'select', label: 'Target Entities', options: ['all', 'events', 'properties', 'users'] },
+			{ id: 'dry_run', type: 'checkbox', label: 'Preview only (dry run)' }
 		]
 	},
 	'dashboard': {
@@ -538,7 +555,7 @@ const AI_MACRO_CONFIGS = {
 		title: '🎯 AI Behaviors & Metrics',
 		description: 'Generate behaviors, metrics, and formulas based on your project schema. Behaviors group events, metrics measure KPIs, and formulas calculate ratios.',
 		fields: [
-			{ id: 'user_prompt', type: 'textarea', label: 'Business Context', placeholder: 'Describe your business and key analytics goals. E.g., "E-commerce platform focusing on conversion optimization and customer retention"', showDice: true },
+			{ id: 'prompt', type: 'textarea', label: 'Business Context', placeholder: 'Describe your business and key analytics goals. E.g., "E-commerce platform focusing on conversion optimization and customer retention"', showDice: true },
 			{ id: 'count', type: 'number', label: 'Number of Entities', default: 6, min: 1, max: 20 }
 		]
 	},
@@ -547,7 +564,8 @@ const AI_MACRO_CONFIGS = {
 		description: 'Generate tags that group similar events by feature, function, or intended use.',
 		fields: [
 			{ id: 'casing', type: 'select', label: 'Tag Casing', options: ['title', 'lower'] },
-			{ id: 'existing_tags_mode', type: 'select', label: 'Existing Tags', options: ['replace', 'merge', 'skip'] }
+			{ id: 'existing_tags_mode', type: 'select', label: 'Existing Tags', options: ['replace', 'merge', 'skip'] },
+			{ id: 'emoji', type: 'checkbox', label: 'Add emoji prefixes' }
 		]
 	},
 	'rename-reports': {
@@ -628,8 +646,8 @@ function renderAIMacroPanel(macroType) {
 			const randomIndex = Math.floor(Math.random() * PROMPT_EXAMPLES.length);
 			const randomPrompt = PROMPT_EXAMPLES[randomIndex];
 
-			// Set the prompt field value (could be 'prompt' or 'user_prompt')
-			const promptField = document.getElementById('ai-prompt') || document.getElementById('ai-user_prompt');
+			// Set the prompt field value
+			const promptField = document.getElementById('ai-prompt');
 			if (promptField && promptField instanceof HTMLTextAreaElement) {
 				promptField.value = randomPrompt;
 
@@ -723,9 +741,12 @@ function gatherAIParams(macroType, projectId, region) {
 		}
 	}
 
-	// Product context
-	const productContext = APP.DOM.aiProductContext?.value?.trim();
-	if (productContext) params.product_context = productContext;
+	// Product context - for macros without their own prompt field, send as 'prompt' to API
+	const hasPromptField = config?.fields?.some(f => f.id === 'prompt');
+	if (!hasPromptField) {
+		const productContext = APP.DOM.aiProductContext?.value?.trim();
+		if (productContext) params.prompt = productContext;
+	}
 
 	// Auth override
 	// @ts-ignore
