@@ -10,12 +10,13 @@
 	"default_locale": "en",
 	"permissions": [
 		"tabs",
+		"tabGroups",
 		"storage",
 		"scripting",
 		"declarativeNetRequest",
 		"declarativeNetRequestWithHostAccess",
 		"cookies"
-	], 
+	],
 	"host_permissions": [
 		"https://mixpanel.com/",
 		"https://*.mxpnl.com/",

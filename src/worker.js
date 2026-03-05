@@ -648,6 +648,11 @@ async function handleRequest(request) {
 			}
 			break;
 
+		case 'open-demo-sequence':
+			console.log('mp-tweaks: opening demo sequence', request.data.groupName);
+			result = await openDemoSequence(request.data);
+			break;
+
 		case 'cleanup-timers':
 			console.log('mp-tweaks: manually cleaning up timers');
 			cleanupAllTimers();
@@ -1689,6 +1694,38 @@ function openNewTab(url, inBackground = false) {
 }
 
 
+
+async function openDemoSequence({ urls = [], groupName = 'Demo', color = 'blue' } = {}) {
+	// open tabs sequentially to avoid overwhelming Chrome
+	const tabs = [];
+	for (const item of urls) {
+		const tab = await openNewTab(item.url, true);
+		tabs.push(tab);
+	}
+	const tabIds = tabs.map(t => t.id).filter(Boolean);
+
+	// group the tabs under a named, colored tab group
+	let groupId = null;
+	try {
+		groupId = await chrome.tabs.group({ tabIds });
+		console.log('mp-tweaks: created tab group', groupId);
+
+		await new Promise(r => setTimeout(r, 250));
+		await chrome.tabGroups.update(groupId, { title: groupName, color, collapsed: true });
+		console.log('mp-tweaks: tab group updated');
+	} catch (e) {
+		console.warn('mp-tweaks: tab grouping not available, opening tabs without group', e);
+	}
+
+	// inject tooltips per-tab (same as original open-tab behaviour)
+	for (let i = 0; i < tabs.length; i++) {
+		if (tabs[i]?.id && urls[i]?.meta && Object.keys(urls[i].meta).length) {
+			await runScript(injectToolTip, [urls[i].meta], { world: 'MAIN' }, tabs[i]);
+		}
+	}
+
+	return { groupId, tabIds };
+}
 
 function removeFlags() {
 	const url = new URL(document.location.href); // Use .href to get the string

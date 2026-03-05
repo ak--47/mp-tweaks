@@ -2123,26 +2123,20 @@ function buildDemoButtons(demo, data) {
 	newButton.appendChild(document.createTextNode(demo.toUpperCase()));
 	newButton.onclick = async () => {
 		track('demo button', { demo });
-		// do something with the data
-		data.forEach(async (obj) => {
-
+		// batch all URLs into a single message so the worker can group them
+		const urls = data.map((obj) => {
 			const { URL } = obj;
 			let meta = {};
 			if (obj.META) {
 				try {
 					meta = JSON.parse(obj.META);
-				}
-
-				catch (e) {
+				} catch (e) {
 					meta = {};
 				}
 			}
-
-			// let url;
-			// if (STORAGE.whoami.email) url = addQueryParams(URL, { user: STORAGE.whoami.email });
-			// else url = URL;
-			messageWorker('open-tab', { url: URL, ...meta });
+			return { url: URL, meta };
 		});
+		messageWorker('open-demo-sequence', { urls, groupName: demo, color: 'blue' });
 	};
 	if (this.DOM.demoLinksWrapper) {
 		this.DOM.demoLinksWrapper.appendChild(newButton);
