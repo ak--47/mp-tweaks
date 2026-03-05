@@ -3,7 +3,7 @@
 // @ts-ignore
 let STORAGE;
 
-const APP_VERSION = `2.54`;
+const APP_VERSION = `2.55`;
 // const FEATURE_FLAG_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vTks7GMkQBfvqKgjIyzLkRYAGRhcN6yZhI46lutP8G8OokZlpBO6KxclQXGINgS63uOmhreG9ClnFpb/pub?gid=0&single=true&output=csv`;
 // const DEMO_GROUPS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQdxs7SWlOc3f_b2f2j4fBk2hwoU7GBABAmJhtutEdPvqIU4I9_QRG6m3KSWNDnw5CYB4pEeRAiSjN7/pub?gid=0&single=true&output=csv`;
 // const TOOLS_URI = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRN5Eu0Lj2dfxM7OSZiR91rcN4JSTprUz07wk8jZZyxOhOHZvRnlgGHJKIOHb6DIb4sjQQma35dCzPZ/pub?gid=0&single=true&output=csv`;
@@ -2102,26 +2102,20 @@ function buildDemoButtons(demo, data) {
 	newButton.appendChild(document.createTextNode(demo.toUpperCase()));
 	newButton.onclick = async () => {
 		track('demo button', { demo });
-		// do something with the data
-		data.forEach(async (obj) => {
-
+		// batch all URLs into a single message so the worker can group them
+		const urls = data.map((obj) => {
 			const { URL } = obj;
 			let meta = {};
 			if (obj.META) {
 				try {
 					meta = JSON.parse(obj.META);
-				}
-
-				catch (e) {
+				} catch (e) {
 					meta = {};
 				}
 			}
-
-			// let url;
-			// if (STORAGE.whoami.email) url = addQueryParams(URL, { user: STORAGE.whoami.email });
-			// else url = URL;
-			messageWorker('open-tab', { url: URL, ...meta });
+			return { url: URL, meta };
 		});
+		messageWorker('open-demo-sequence', { urls, groupName: demo, color: 'blue' });
 	};
 	if (this.DOM.demoLinksWrapper) {
 		this.DOM.demoLinksWrapper.appendChild(newButton);
